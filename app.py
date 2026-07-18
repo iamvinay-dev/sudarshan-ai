@@ -25,6 +25,19 @@ import logging
 import requests
 from flask import Flask, request, jsonify
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    load_dotenv = None
+
+try:
+    import json
+except ImportError:  # pragma: no cover
+    json = None
+
+if load_dotenv is not None:
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+
 from knowledge_base import (
     CATEGORY_MAP,
     WELCOME_MESSAGE,
@@ -36,7 +49,7 @@ from knowledge_base import (
 # ---------------------------------------------------------------------------
 # Configuration (all read from Environment Variables — see .env.example)
 # ---------------------------------------------------------------------------
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan123")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan_verify_token")
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -59,24 +72,42 @@ MAX_HISTORY_TURNS = 3  # keep last 3 user+bot exchanges per person
 # ---------------------------------------------------------------------------
 KNOWLEDGE_TEXT = get_full_knowledge_text()
 
-SYSTEM_PROMPT = f"""You are "Sudarshan AI", a warm, respectful WhatsApp assistant that helps
-pilgrims visiting Tirumala Tirupati Devasthanams (TTD) temple, Andhra Pradesh, India.
+SYSTEM_PROMPT = f"""You are "Sudarshan AI", a warm WhatsApp assistant for pilgrims visiting
+Tirumala Tirupati Devasthanams (TTD) temple, Andhra Pradesh, India.
 
-RULES YOU MUST FOLLOW:
-1. Answer ONLY using the KNOWLEDGE BASE provided below. Do not invent facts,
-   phone numbers, prices, or dates that are not present in it.
-2. If the answer is not in the knowledge base, politely say you don't have that
-   exact detail and point the pilgrim to the official TTD website https://tirumala.org
-   or the TTD Call Centre. Never make up information.
-3. LANGUAGE: Reply in the SAME language the pilgrim used.
-   - If they write in Telugu (Telugu script or Romanized "Tenglish"), reply in Telugu.
-   - If they write in English, reply in English.
-   - Keep the tone respectful and simple — many pilgrims are elderly or first-time users.
-4. Keep answers short and WhatsApp-friendly: use short paragraphs, simple words,
-   and emojis sparingly (🙏 🛕 🎟️ 🚌 🏨) where natural.
-5. Be warm and devotional in tone, like a helpful temple volunteer, but stay factual.
-6. If asked something totally unrelated to Tirumala/TTD pilgrimage, gently redirect
-   the conversation back to how you can help with their Tirumala visit.
+FACTS RULE:
+1. Answer ONLY using the KNOWLEDGE BASE provided below. Never invent facts, phone
+   numbers, prices, or dates that are not present in it.
+2. If the answer is not in the knowledge base, say briefly that you don't have that
+   exact detail and point the pilgrim to https://tirumala.org or the TTD Call Centre.
+3. Give PRECISE answers — the exact number, price, or location asked for, not a vague
+   general statement. If the knowledge base has the specific detail, state it directly.
+
+LENGTH & STYLE RULE (very important — this is a chat app, not an essay):
+4. Reply like a quick, caring WhatsApp text — NOT a report. Hard limit: 2 to 4 short
+   sentences, unless the pilgrim explicitly asks for a full list of options.
+5. If listing items, use at most 3 short bullet points, each under 12 words.
+6. Use WhatsApp bold formatting with single asterisks around key facts, e.g.
+   *₹300*, *Vishnu Nivasam*, *3 months in advance*.
+7. Use 1-2 emojis per reply where natural (🙏 🛕 🎟️ 🚌 🏨).
+8. No headings, no long intros, no repeating the question back. Just answer.
+9. Do NOT end with generic filler like "ask me anything else" or "feel free to ask".
+   Instead, ALWAYS end every reply with this exact line on its own:
+   🙏 *Om Namo Venkatesaya* 🙏
+10. Be warm and respectful — many pilgrims are elderly or first-time users — but
+    never pad the message with extra pleasantries.
+
+LANGUAGE RULE:
+11. Detect the pilgrim's language from their message, including:
+    - Native Telugu script (e.g. "దర్శనం ఎప్పుడు?")
+    - "Tenglish" / Romanized Telugu typed in English letters
+      (e.g. "darshan eppudu untundi", "ticket ela book cheyali")
+12. If the message is Telugu OR Tenglish, ALWAYS reply fully in native Telugu script
+    (తెలుగు లిపి) — never reply in English, and never reply in Romanized Telugu.
+    The closing signature line stays as "🙏 *Om Namo Venkatesaya* 🙏" either way.
+13. If the message is in English, reply in English. If unsure, default to English.
+14. If asked something unrelated to Tirumala/TTD, briefly redirect back to how you
+    can help with their pilgrimage — in one short sentence, same language rule applies.
 
 KNOWLEDGE BASE (the only source of truth you may use):
 {KNOWLEDGE_TEXT}
@@ -92,9 +123,19 @@ def ask_groq(user_message: str, history: list) -> str:
         return ("⚠️ The AI brain is not configured yet (missing GROQ_API_KEY). "
                 "Please try one of the menu numbers 1-7, or contact the admin.")
 
+    # Give Groq an explicit language hint based on our own detection, as a
+    # backup in case the model's own language detection misses short or
+    # ambiguous Tenglish messages (e.g. "eppudu vastundi?").
+    language_hint = (
+        "[System note: this message looks like Telugu — reply fully in "
+        "native Telugu script.]\n"
+        if is_telugu(user_message)
+        else "[System note: this message looks like English — reply in English.]\n"
+    )
+
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
-    messages.append({"role": "user", "content": user_message})
+    messages.append({"role": "user", "content": language_hint + user_message})
 
     try:
         response = requests.post(
@@ -106,8 +147,8 @@ def ask_groq(user_message: str, history: list) -> str:
             json={
                 "model": GROQ_MODEL,
                 "messages": messages,
-                "temperature": 0.3,
-                "max_tokens": 500,
+                "temperature": 0.4,
+                "max_tokens": 220,
             },
             timeout=20,
         )
@@ -157,12 +198,32 @@ def send_whatsapp_message(to: str, text: str) -> None:
 GREETING_WORDS = {
     "hi", "hello", "hey", "start", "menu", "namaste", "hai", "hlo",
     "నమస్తే", "నమస్కారం", "హాయ్", "మెనూ", "start menu",
+    "namaskaram", "menu kavali", "start cheyandi",
+}
+
+# A small set of very common Tenglish (Romanized Telugu) words/word-fragments.
+# We only need a handful of high-signal words — this isn't meant to be a full
+# language model, just enough to catch "this looks like Telugu typed in
+# English letters" so we can tell Groq to reply in Telugu script.
+TENGLISH_HINTS = {
+    "enti", "ela", "eppudu", "ekkada", "evaru", "chala", "kavali", "cheyali",
+    "vastai", "vastundi", "undha", "unda", "chestara", "cheppandi", "dorukuthundha",
+    "dhaggara", "meeku", "naku", "manaki", "andariki", "darshanam", "darshan",
+    "seva", "prasadam", "annadanam", "vundi", "vachindi", "kastam", "sulabham",
+    "yela", "yenti", "baaga", "namaskaram", "dhoranam",
 }
 
 
 def is_telugu(text: str) -> bool:
-    """Very simple check: does the text contain Telugu unicode characters?"""
-    return any("\u0c00" <= ch <= "\u0c7f" for ch in text)
+    """Detect Telugu input in either form:
+    1. Native Telugu script (Unicode range check), or
+    2. "Tenglish" — Telugu words typed in English letters — by matching a
+       small set of very common Telugu words against the message.
+    """
+    if any("\u0c00" <= ch <= "\u0c7f" for ch in text):
+        return True
+    words = set(text.lower().replace("?", " ").replace(",", " ").split())
+    return bool(words & TENGLISH_HINTS)
 
 
 def handle_incoming_text(from_number: str, text: str) -> str:
@@ -219,7 +280,7 @@ def verify_webhook():
 def receive_webhook():
     """Meta POSTs every incoming WhatsApp event here."""
     data = request.get_json(silent=True) or {}
-    log.info("Incoming webhook: %s", data)
+    log.info("Incoming webhook payload: %s", data)
 
     try:
         entry = data.get("entry", [])[0]
@@ -228,18 +289,18 @@ def receive_webhook():
         messages = value.get("messages")
 
         if not messages:
-            # Could be a status update (delivered/read) — nothing to do.
+            log.info("Webhook event had no messages; likely a status update.")
             return "OK", 200
 
         message = messages[0]
-        from_number = message["from"]
+        from_number = message.get("from", "unknown")
         msg_type = message.get("type")
+        log.info("Processing message from %s with type %s", from_number, msg_type)
 
         if msg_type == "text":
-            text_body = message["text"]["body"]
+            text_body = message.get("text", {}).get("body", "")
             reply_text = handle_incoming_text(from_number, text_body)
         elif msg_type == "interactive":
-            # Handles button/list replies if you add interactive menus later.
             interactive = message.get("interactive", {})
             selection = (
                 interactive.get("button_reply", {}).get("title")
