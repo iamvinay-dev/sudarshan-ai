@@ -36,7 +36,7 @@ from knowledge_base import (
 # ---------------------------------------------------------------------------
 # Configuration (all read from Environment Variables — see .env.example)
 # ---------------------------------------------------------------------------
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan_verify_token")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan123")
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
