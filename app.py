@@ -132,7 +132,7 @@ def ask_groq(user_message: str, history: list) -> str:
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
-    except Exception as exc:
+ except Exception as exc:
     log.error("Groq API error: %s", exc)
 
     if hasattr(exc, "response") and exc.response is not None:
