@@ -524,7 +524,15 @@ def build_category_reply(category_key: str, telugu: bool = False) -> str:
 
 
 def get_full_knowledge_text() -> str:
-    """Flatten the whole knowledge base into plain text for the LLM prompt."""
+    """Flatten the whole knowledge base into plain text for the LLM prompt.
+
+    NOTE: This is kept for reference/debugging, but is NOT used on the hot
+    webhook path anymore — sending the full ~24,000-character knowledge base
+    on every single message used ~6,000+ tokens per request and triggered
+    Groq's free-tier "429 Too Many Requests" rate limit. Use
+    get_relevant_knowledge_text() instead, which sends only a handful of
+    matching Q&As per question.
+    """
     chunks = []
     for key in MENU_ORDER:
         cat = KNOWLEDGE_BASE[key]
@@ -532,3 +540,437 @@ def get_full_knowledge_text() -> str:
         for qa in cat["qas"]:
             chunks.append(f"Q: {qa['q']}\nA: {qa['a']}")
     return "\n".join(chunks)
+
+
+# ------------------------------------------------------------------
+# Base word-matching helpers (the foundation the keyword/synonym engine
+# below builds on).
+# ------------------------------------------------------------------
+
+_QA_INDEX = [
+    (key, qa["q"], qa["a"])
+    for key in MENU_ORDER
+    for qa in KNOWLEDGE_BASE[key]["qas"]
+]
+
+_STOPWORDS = {
+    "the", "is", "are", "a", "an", "to", "for", "of", "in", "on", "at",
+    "and", "or", "do", "does", "can", "i", "my", "me", "what", "how",
+    "where", "when", "who", "will", "should", "would", "please", "with",
+    # Domain-generic words that appear in almost EVERY pilgrim question —
+    # they carry no discriminating power for matching, so counting them
+    # only dilutes the confidence score and causes near-miss questions
+    # (e.g. "Can I wear jeans?" vs "Can I wear jeans to Tirumala Temple?")
+    # to fall just short of the direct-match threshold.
+    "tirumala", "tirupati", "temple", "ttd", "swami", "swamy", "swamivaru",
+    "lord", "sri", "devasthanam", "devasthanams",
+}
+
+
+def _word_set(text: str) -> set:
+    """Lowercase, strip punctuation, split into words, drop stopwords/short
+    words. Works fine on Telugu script too since we only split on
+    non-alphanumeric characters (Telugu letters count as alphanumeric)."""
+    words = "".join(ch if ch.isalnum() else " " for ch in text.lower()).split()
+    return {w for w in words if len(w) > 2 and w not in _STOPWORDS}
+
+
+# ==================================================================
+# KEYWORD SYNONYM DICTIONARY (English + Telugu, kept SEPARATE per concept)
+# ==================================================================
+# This is the main cost-reduction engine. Every concept a pilgrim might ask
+# about is mapped to a bundle of English AND Telugu phrases people actually
+# type on WhatsApp (including common misspellings / Romanized Telugu).
+#
+# How it helps:
+#   1. A Telugu-typed question can now match an English-only Q&A/answer,
+#      because we expand the query with the English side of any concept
+#      whose Telugu side appears in the question (and vice versa).
+#   2. When the expanded match is confident enough, we skip Groq COMPLETELY
+#      and answer straight from the knowledge base — zero API cost.
+#   3. When we DO need Groq (no confident match), the extra keywords still
+#      make search_relevant_qas() pick better, smaller context — fewer
+#      tokens per call than plain word-matching alone.
+#
+# To add more coverage later: just add more phrases to any concept below,
+# or add a brand-new concept block. No other code needs to change.
+# ------------------------------------------------------------------
+
+KEYWORD_SYNONYMS = {
+
+    "darshan_general": {
+        "en": ["darshan", "viewing", "see swamy", "see god", "see lord",
+               "have darshan", "temple visit", "darshanam", "swamy varu"],
+        "te": ["దర్శనం", "దర్శన", "స్వామి దర్శనం", "భగవంతుని దర్శనం",
+               "దేవుని దర్శనం", "దర్శనము", "స్వామివారి దర్శనం"],
+    },
+    "sarva_darshan": {
+        "en": ["sarva darshan", "free darshan", "general darshan",
+               "normal darshan", "regular darshan"],
+        "te": ["సర్వ దర్శనం", "ఉచిత దర్శనం", "సాధారణ దర్శనం"],
+    },
+    "special_entry": {
+        "en": ["special entry", "300 rupees ticket", "rs 300 ticket",
+               "paid darshan", "ssd ticket", "300 ticket"],
+        "te": ["స్పెషల్ ఎంట్రీ", "300 రూపాయల టికెట్", "చెల్లింపు దర్శనం",
+               "SSD టికెట్"],
+    },
+    "divya_darshan": {
+        "en": ["divya darshan", "footpath darshan", "walking darshan"],
+        "te": ["దివ్య దర్శనం", "కాలినడక దర్శనం", "నడక దర్శనం"],
+    },
+    "senior_citizen": {
+        "en": ["senior citizen", "old age", "elderly", "senior citizen darshan",
+               "old people", "aged"],
+        "te": ["సీనియర్ సిటిజన్", "వృద్ధులు", "పెద్దవారు", "వయసు మళ్లిన వారు"],
+    },
+    "differently_abled": {
+        "en": ["differently abled", "disabled", "handicapped", "wheelchair",
+               "special needs", "physically challenged"],
+        "te": ["దివ్యాంగులు", "వికలాంగులు", "అంగవైకల్యం", "వీల్‌చైర్"],
+    },
+    "ticket_booking": {
+        "en": ["ticket", "tickets", "booking", "book online", "reserve",
+               "slot", "quota", "book darshan", "how to book"],
+        "te": ["టికెట్", "టికెట్లు", "బుకింగ్", "బుక్ చేయడం", "స్లాట్",
+               "కోటా", "ఎలా బుక్ చేయాలి"],
+    },
+    "token": {
+        "en": ["token", "ssd token", "token release", "token timing",
+               "tokens open", "token date"],
+        "te": ["టోకెన్", "SSD టోకెన్", "టోకెన్ ఎప్పుడు"],
+    },
+    "cancellation": {
+        "en": ["cancel", "cancellation", "refund", "reschedule",
+               "change date", "modify booking"],
+        "te": ["రద్దు", "వాపసు", "రీషెడ్యూల్", "తేదీ మార్పు", "బుకింగ్ మార్చడం"],
+    },
+    "id_proof": {
+        "en": ["id proof", "aadhaar", "photo id", "identity card",
+               "document required", "govt id"],
+        "te": ["గుర్తింపు కార్డు", "ఆధార్", "ఫోటో ఐడి", "పత్రం", "గుర్తింపు పత్రం"],
+    },
+    "qr_code": {
+        "en": ["qr code", "scan code", "barcode"],
+        "te": ["క్యూఆర్ కోడ్", "స్కాన్", "బార్‌కోడ్"],
+    },
+    "waiting_time": {
+        "en": ["waiting time", "queue", "crowd", "rush", "how long wait",
+               "line", "how many hours"],
+        "te": ["వేచి ఉండే సమయం", "క్యూ", "రద్దీ", "ఎంత సమయం", "లైన్"],
+    },
+    "accommodation_general": {
+        "en": ["accommodation", "stay", "room", "lodging", "hotel",
+               "rest house", "free stay", "where to stay"],
+        "te": ["వసతి", "బస", "గది", "రూమ్", "ఉచిత బస", "ఎక్కడ ఉండాలి"],
+    },
+    "vishnu_nivasam": {
+        "en": ["vishnu nivasam"],
+        "te": ["విష్ణు నివాసం"],
+    },
+    "madhava_nilayam": {
+        "en": ["madhava nilayam"],
+        "te": ["మాధవ నిలయం"],
+    },
+    "locker": {
+        "en": ["locker", "luggage storage", "safe deposit", "keep luggage"],
+        "te": ["లాకర్", "సామాను భద్రపరచడం", "లగేజీ దాచడం"],
+    },
+    "bathing": {
+        "en": ["bath", "bathing", "shower", "toilet", "restroom", "washroom"],
+        "te": ["స్నానం", "టాయిలెట్", "బాత్రూమ్", "స్నానాల గది"],
+    },
+    "transport_general": {
+        "en": ["transport", "travel", "how to reach", "how to go",
+               "commute", "get to tirumala", "best way to travel"],
+        "te": ["రవాణా", "ప్రయాణం", "ఎలా వెళ్ళాలి", "ఎలా చేరుకోవాలి"],
+    },
+    "bus": {
+        "en": ["bus", "apsrtc", "bus stand", "bus timings", "bus service"],
+        "te": ["బస్సు", "APSRTC", "బస్ స్టాండ్", "బస్సు సమయాలు"],
+    },
+    "taxi": {
+        "en": ["taxi", "cab", "auto rickshaw", "private vehicle", "car",
+               "own vehicle", "hire taxi"],
+        "te": ["టాక్సీ", "క్యాబ్", "ఆటో", "సొంత వాహనం", "కారు"],
+    },
+    "train": {
+        "en": ["train", "railway station", "railway"],
+        "te": ["రైలు", "రైల్వే స్టేషన్"],
+    },
+    "flight": {
+        "en": ["flight", "airport", "air travel", "by air"],
+        "te": ["విమానం", "విమానాశ్రయం"],
+    },
+    "footpath": {
+        "en": ["footpath", "walking route", "alipiri", "srivari mettu",
+               "steps", "trek", "walking path", "hike"],
+        "te": ["కాలిబాట", "నడక మార్గం", "అలిపిరి", "శ్రీవారి మెట్టు", "మెట్లు"],
+    },
+    "parking": {
+        "en": ["parking", "park vehicle", "car parking"],
+        "te": ["పార్కింగ్", "వాహనం నిలపడం"],
+    },
+    "dharma_ratham": {
+        "en": ["dharma ratham", "free bus inside tirumala", "local bus",
+               "shuttle bus"],
+        "te": ["ధర్మ రథం", "ఉచిత బస్సు", "లోకల్ బస్సు"],
+    },
+    "temple_history": {
+        "en": ["history", "legend", "story", "mythology", "origin",
+               "temple history", "why famous"],
+        "te": ["చరిత్ర", "పురాణం", "కథ", "మూలం", "ఆలయ చరిత్ర"],
+    },
+    "venkateswara": {
+        "en": ["venkateswara", "balaji", "srinivasa", "govinda",
+               "lord vishnu", "who is venkateswara"],
+        "te": ["వేంకటేశ్వరుడు", "బాలాజీ", "శ్రీనివాసుడు", "గోవిందా", "విష్ణువు"],
+    },
+    "annamacharya": {
+        "en": ["annamacharya", "saint poet", "sankeertana"],
+        "te": ["అన్నమాచార్య", "సంకీర్తన"],
+    },
+    "temple_architecture": {
+        "en": ["architecture", "vimanam", "gold roof", "gopuram", "structure"],
+        "te": ["నిర్మాణశైలి", "విమానం", "బంగారు కప్పు", "గోపురం"],
+    },
+    "tonsure": {
+        "en": ["tonsure", "hair offering", "shave head", "mottai", "haircut"],
+        "te": ["తలనీలాలు", "క్షురకర్మ", "గుండు", "జుట్టు సమర్పణ"],
+    },
+    "dress_code": {
+        "en": ["dress code", "what to wear", "clothing", "attire",
+               "traditional dress", "dress rules"],
+        "te": ["దుస్తుల నియమాలు", "ఏమి ధరించాలి", "వస్త్రధారణ",
+               "సంప్రదాయ దుస్తులు"],
+    },
+    "jeans_shorts": {
+        "en": ["jeans", "shorts", "pants", "trousers", "western clothes",
+               "can i wear jeans"],
+        "te": ["జీన్స్", "షార్ట్స్", "పాంట్లు", "పాశ్చాత్య దుస్తులు"],
+    },
+    "mobile_camera": {
+        "en": ["mobile phone", "camera", "photography", "video",
+               "electronic device", "phone allowed"],
+        "te": ["మొబైల్ ఫోన్", "కెమెరా", "ఫోటోగ్రఫీ", "వీడియో", "ఎలక్ట్రానిక్ పరికరం"],
+    },
+    "footwear": {
+        "en": ["footwear", "shoes", "chappals", "slippers", "sandals"],
+        "te": ["చెప్పులు", "బూట్లు", "సాండల్స్"],
+    },
+    "prohibited_items": {
+        "en": ["not allowed", "prohibited", "banned items", "restricted",
+               "what can i carry"],
+        "te": ["అనుమతి లేదు", "నిషేధించబడింది", "నిషేధిత వస్తువులు"],
+    },
+    "food_rules": {
+        "en": ["food", "alcohol", "smoking", "non veg", "tobacco",
+               "drinking", "eat inside"],
+        "te": ["ఆహారం", "మద్యం", "ధూమపానం", "మాంసాహారం", "పొగాకు"],
+    },
+    "temple_rules_general": {
+        "en": ["rules", "regulations", "guidelines", "discipline", "conduct",
+               "temple rules"],
+        "te": ["నియమాలు", "నిబంధనలు", "మార్గదర్శకాలు", "క్రమశిక్షణ"],
+    },
+    "anna_prasadam": {
+        "en": ["anna prasadam", "free food", "free meal", "prasadam meal",
+               "annadanam"],
+        "te": ["అన్న ప్రసాదం", "ఉచిత భోజనం", "ప్రసాదం", "అన్నదానం"],
+    },
+    "laddu": {
+        "en": ["laddu", "prasadam sweet", "tirupati laddu", "sweet prasadam"],
+        "te": ["లడ్డు", "ప్రసాదం", "తిరుపతి లడ్డు", "మధురం"],
+    },
+    "help_contact": {
+        "en": ["help", "contact", "phone number", "helpline",
+               "call centre", "customer care", "contact number"],
+        "te": ["సహాయం", "సంప్రదింపు", "ఫోన్ నంబర్", "హెల్ప్‌లైన్",
+               "కాల్ సెంటర్"],
+    },
+    "complaint": {
+        "en": ["complaint", "feedback", "grievance", "file complaint"],
+        "te": ["ఫిర్యాదు", "అభిప్రాయం", "వ్యాజ్యం"],
+    },
+    "lost_found": {
+        "en": ["lost", "missing", "found", "lost child", "lost belongings",
+               "lost item"],
+        "te": ["పోయింది", "తప్పిపోయింది", "దొరికింది", "పిల్లవాడు తప్పిపోయాడు"],
+    },
+    "medical": {
+        "en": ["medical", "hospital", "first aid", "ambulance",
+               "emergency", "doctor", "sick", "health"],
+        "te": ["వైద్యం", "ఆసుపత్రి", "ప్రథమ చికిత్స", "అంబులెన్స్",
+               "అత్యవసరం", "డాక్టర్"],
+    },
+    "police_security": {
+        "en": ["police", "security", "safety"],
+        "te": ["పోలీసు", "భద్రత", "రక్షణ"],
+    },
+    "website_online": {
+        "en": ["website", "online", "official site", "app", "portal"],
+        "te": ["వెబ్‌సైట్", "ఆన్‌లైన్", "అధికారిక సైట్", "యాప్"],
+    },
+}
+
+# Flatten into (phrase, concept_key) pairs, longest phrases first so
+# multi-word phrases (e.g. "special entry") are matched before a shorter
+# phrase that might be a substring of it.
+_ALL_SYNONYM_PHRASES = sorted(
+    (
+        (phrase.lower(), concept)
+        for concept, langs in KEYWORD_SYNONYMS.items()
+        for lang_list in langs.values()
+        for phrase in lang_list
+    ),
+    key=lambda item: -len(item[0]),
+)
+
+
+def expand_query_concepts(query: str) -> set:
+    """Return the set of concept keys detected in the query, using TWO
+    matching strategies:
+
+    1) Substring match — fast, and correct for single strong words or
+       Telugu compound phrases (e.g. "అన్న ప్రసాదం" typed exactly).
+    2) Order-independent word-subset match — a multi-word EN/TE phrase
+       counts as matched if ALL of its significant words appear SOMEWHERE
+       in the query, in any order/position. This catches real pilgrim
+       phrasing like "keep MY luggage" or "where I can store luggage",
+       which wouldn't contain "keep luggage" as an exact substring but
+       clearly means the same thing.
+    """
+    ql = query.lower()
+    query_words = _word_set(query)
+    matched = set()
+
+    for phrase, concept in _ALL_SYNONYM_PHRASES:
+        if concept in matched:
+            continue
+        if phrase in ql:
+            matched.add(concept)
+            continue
+        phrase_words = _word_set(phrase)
+        if len(phrase_words) >= 2 and phrase_words.issubset(query_words):
+            matched.add(concept)
+
+    return matched
+
+
+def expand_query_words(query: str) -> set:
+    """The query's own words PLUS every English/Telugu keyword belonging to
+    any concept detected in the query. This expanded set is what we match
+    against Q&A text, so recall is much higher than plain word overlap."""
+    words = set(_word_set(query))
+    for concept in expand_query_concepts(query):
+        for lang_list in KEYWORD_SYNONYMS[concept].values():
+            for phrase in lang_list:
+                words |= _word_set(phrase)
+    return words
+
+
+def search_relevant_qas(query: str, top_n: int = 6):
+    """Return the top_n (category_key, question, answer) tuples most
+    relevant to a free-text query, using keyword + concept overlap.
+    Questions matter more than answers, so a match in the question is
+    weighted higher."""
+    query_words = expand_query_words(query)
+    if not query_words:
+        return _QA_INDEX[:top_n]
+
+    scored = []
+    for key, q, a in _QA_INDEX:
+        score = 2 * len(query_words & _word_set(q)) + len(query_words & _word_set(a))
+        if score > 0:
+            scored.append((score, key, q, a))
+
+    if not scored:
+        # No keyword overlap at all — fall back to a small general set so
+        # the AI still has *some* grounding rather than none.
+        return _QA_INDEX[:top_n]
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [(key, q, a) for _, key, q, a in scored[:top_n]]
+
+
+def get_relevant_knowledge_text(query: str, top_n: int = 6) -> str:
+    """Build a SHORT knowledge snippet — only the Q&As relevant to this one
+    question — to use as grounding context for a single Groq request."""
+    matches = search_relevant_qas(query, top_n=top_n)
+    lines = []
+    for key, q, a in matches:
+        title = KNOWLEDGE_BASE[key]["title"]
+        lines.append(f"[{title}]\nQ: {q}\nA: {a}")
+    return "\n\n".join(lines)
+
+
+# ------------------------------------------------------------------
+# DIRECT ANSWER (zero Groq API calls) — the main cost-saving feature.
+#
+# If the expanded query overlaps a large enough FRACTION of a specific
+# Q&A's own question words, we're confident enough to answer straight
+# from the knowledge base — no AI call needed at all. Only questions
+# that DON'T confidently match anything fall through to Groq.
+# ------------------------------------------------------------------
+
+DIRECT_MATCH_MIN_CONFIDENCE = 0.55  # >=55% of the matched question's words
+DIRECT_MATCH_MIN_OVERLAP = 2        # normally need >=2 real words in common
+DIRECT_MATCH_SINGLE_WORD_CONFIDENCE = 0.9  # ...unless it's a near-exact,
+                                            # very short/specific question
+
+
+def find_best_direct_match(query: str):
+    """Try to find one clearly-best Q&A for this query.
+    Returns (category_key, question, answer) if confident, else None.
+
+    A match counts as confident if EITHER:
+      (a) it shares >=2 real words with the query AND covers >=55% of the
+          question's own words, OR
+      (b) the question is very short/specific (<=2 real words after
+          stopwords) and the query covers >=90% of it — e.g. a question
+          that reduces to just {"laddu"} still deserves a direct answer
+          when the pilgrim's message is clearly about laddus.
+    """
+    expanded = expand_query_words(query)
+    if not expanded:
+        return None
+
+    best = None
+    best_score = 0
+    best_confidence = 0.0
+
+    for key, q, a in _QA_INDEX:
+        q_words = _word_set(q)
+        if not q_words:
+            continue
+        overlap = expanded & q_words
+        score = len(overlap)
+        confidence = score / len(q_words)
+
+        confident = (
+            (score >= DIRECT_MATCH_MIN_OVERLAP and confidence >= DIRECT_MATCH_MIN_CONFIDENCE)
+            or (score >= 1 and len(q_words) <= 2 and confidence >= DIRECT_MATCH_SINGLE_WORD_CONFIDENCE)
+        )
+        if not confident:
+            continue
+
+        # Prefer higher absolute overlap first, then higher confidence.
+        if score > best_score or (score == best_score and confidence > best_confidence):
+            best_score = score
+            best_confidence = confidence
+            best = (key, q, a)
+
+    return best
+
+
+def format_direct_answer(match, telugu: bool = False) -> str:
+    """Format a directly-matched Q&A as a WhatsApp-friendly reply.
+    Used when find_best_direct_match() is confident — this path costs
+    NOTHING (no Groq API call)."""
+    key, q, a = match
+    title = KNOWLEDGE_BASE[key]["title"]
+    if telugu:
+        footer = "\n\n💬 మరింత సమాచారం కావాలంటే, మీ ప్రశ్నను తెలుగులో లేదా ఇంగ్లీష్‌లో అడగండి!"
+    else:
+        footer = "\n\n💬 Ask me anything else, in English or Telugu!"
+    return f"*{title}*\n\n❓ {q}\n➡️ {a}{footer}"
