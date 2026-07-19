@@ -21,6 +21,7 @@ Flow:
 """
 
 import os
+import time
 import logging
 import requests
 from flask import Flask, request, jsonify
@@ -43,18 +44,33 @@ from knowledge_base import (
     WELCOME_MESSAGE,
     TELUGU_WELCOME_MESSAGE,
     build_category_reply,
-    get_full_knowledge_text,
+    get_relevant_knowledge_text,
+    find_best_direct_match,
+    format_direct_answer,
 )
 
 # ---------------------------------------------------------------------------
 # Configuration (all read from Environment Variables — see .env.example)
+#
+# Two AI providers are configured, both with generous FREE tiers:
+#   1) GEMINI  (primary)  — Google's Gemini API, tried first.
+#   2) GROQ    (backup)   — used automatically if Gemini is not configured,
+#                           fails, or is rate-limited.
+# Keeping two independent providers means a rate limit or outage on one
+# doesn't take the whole bot down — and between the DIRECT-MATCH engine in
+# knowledge_base.py and this two-provider fallback, actual paid-API calls
+# are kept to a minimum.
 # ---------------------------------------------------------------------------
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan_verify_token")
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "")
+WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sudarshan-ai")
@@ -72,12 +88,14 @@ MAX_HISTORY_TURNS = 3  # keep last 3 user+bot exchanges per person
 user_lang = {}
 
 # ---------------------------------------------------------------------------
-# Build the system prompt ONCE at startup (knowledge base is small enough
-# to fit fully into the prompt — this is called "prompt-based RAG").
+# System prompt TEMPLATE (the {knowledge} part is filled in per-question,
+# with ONLY the handful of Q&As relevant to that question — see ask_groq()
+# below). Previously the ENTIRE knowledge base (~24,000 characters, 6,000+
+# tokens) was embedded here and sent on every single message, which used up
+# Groq's free-tier tokens-per-minute budget almost instantly and caused
+# "429 Too Many Requests" errors on the very next question.
 # ---------------------------------------------------------------------------
-KNOWLEDGE_TEXT = get_full_knowledge_text()
-
-SYSTEM_PROMPT = f"""You are "Sudarshan AI", a warm, respectful WhatsApp assistant that helps
+SYSTEM_PROMPT_TEMPLATE = """You are "Sudarshan AI", a warm, respectful WhatsApp assistant that helps
 pilgrims visiting Tirumala Tirupati Devasthanams (TTD) temple, Andhra Pradesh, India.
 
 RULES YOU MUST FOLLOW:
@@ -96,55 +114,151 @@ RULES YOU MUST FOLLOW:
 6. If asked something totally unrelated to Tirumala/TTD pilgrimage, gently redirect
    the conversation back to how you can help with their Tirumala visit.
 
-KNOWLEDGE BASE (the only source of truth you may use):
-{KNOWLEDGE_TEXT}
+KNOWLEDGE BASE (the only source of truth you may use for THIS question):
+{knowledge}
 """
 
 # ---------------------------------------------------------------------------
-# Groq AI call
+# PROVIDER 1: Gemini AI call (PRIMARY — tried first)
 # ---------------------------------------------------------------------------
-def ask_groq(user_message: str, history: list) -> str:
-    """Send the conversation to Groq's OpenAI-compatible chat completion API
-    and return the assistant's reply text."""
-    if not GROQ_API_KEY:
-        return ("⚠️ The AI brain is not configured yet (missing GROQ_API_KEY). "
-                "Please try one of the menu numbers 1-7, or contact the admin.")
+def ask_gemini(user_message: str, history: list, system_prompt: str):
+    """Call Google's Gemini API (free tier). Returns the reply text on
+    success, or None on any failure — so the caller can fall back to Groq
+    without the pilgrim ever seeing an error."""
+    if not GEMINI_API_KEY:
+        return None
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Gemini's REST API uses "contents" with role "user"/"model" (not
+    # "assistant"), and takes the system prompt as a separate field.
+    contents = []
+    for turn in history:
+        role = "model" if turn["role"] == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": turn["content"]}]})
+    contents.append({"role": "user", "parts": [{"text": user_message}]})
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents,
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+
+        if response.status_code == 429:
+            log.warning("Gemini rate-limited (429) — falling back to Groq.")
+            return None
+
+        response.raise_for_status()
+        data = response.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            log.warning("Gemini returned no candidates — falling back to Groq.")
+            return None
+        parts = candidates[0].get("content", {}).get("parts", [])
+        text = "".join(p.get("text", "") for p in parts).strip()
+        return text or None
+
+    except Exception as exc:  # noqa: BLE001 - never crash the bot, just fall back
+        log.error("Gemini API error: %s — falling back to Groq.", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# PROVIDER 2: Groq AI call (BACKUP — used only if Gemini is unavailable)
+# ---------------------------------------------------------------------------
+def ask_groq(user_message: str, history: list, system_prompt: str):
+    """Send the conversation to Groq's OpenAI-compatible chat completion API.
+    Returns the reply text on success, or None on failure (so the caller
+    can show a single graceful final message instead of a raw error)."""
+    if not GROQ_API_KEY:
+        return None
+
+    messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
-try:
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": GROQ_MODEL,
-            "messages": messages,
-            "temperature": 0.3,
-            "max_tokens": 500,
-        },
-        timeout=20,
-    )
 
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 400,
+    }
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-except Exception as exc:
-    log.error("Groq API error: %s", exc)
+    # Try once, and if we hit Groq's rate limit (429), wait briefly and
+    # retry ONE more time before giving up.
+    for attempt in range(2):
+        try:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=20,
+            )
 
-    if hasattr(exc, "response") and exc.response is not None:
-        log.error("Status Code: %s", exc.response.status_code)
-        log.error("Response Body: %s", exc.response.text)
-        log.error("Headers: %s", exc.response.headers)
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                wait_seconds = min(float(retry_after) if retry_after else 2.0, 5.0)
+                log.warning(
+                    "Groq rate limit hit (429) on attempt %d. Retrying in %.1fs...",
+                    attempt + 1, wait_seconds,
+                )
+                if attempt == 0:
+                    time.sleep(wait_seconds)
+                    continue
+                return None
 
-    return (
-        "🙏 Sorry, I'm having trouble thinking right now."
-        " Please try again in a moment, or reply with a menu number (1-7)."
-    )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+
+        except Exception as exc:  # noqa: BLE001 - keep the bot alive no matter what
+            log.error("Groq API error: %s", exc)
+            return None
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# ORCHESTRATOR: try Gemini first, then Groq, then a graceful final message.
+# This is only reached when the DIRECT-MATCH engine in knowledge_base.py
+# (zero API cost) couldn't confidently answer the question by itself.
+# ---------------------------------------------------------------------------
+def get_ai_reply(user_message: str, history: list) -> str:
+    # Only pull in the Q&As relevant to THIS question (usually 6 of them,
+    # a few hundred tokens) instead of the whole knowledge base — this is
+    # what fixed the earlier Groq 429 "Too Many Requests" errors, and it
+    # keeps Gemini's free-tier usage low too.
+    relevant_knowledge = get_relevant_knowledge_text(user_message, top_n=6)
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(knowledge=relevant_knowledge)
+
+    # 1) PRIMARY: Gemini (free tier)
+    reply = ask_gemini(user_message, history, system_prompt)
+    if reply:
+        return reply
+
+    # 2) BACKUP: Groq (free tier) — only reached if Gemini is not
+    #    configured, failed, or was rate-limited.
+    reply = ask_groq(user_message, history, system_prompt)
+    if reply:
+        return reply
+
+    # 3) Both providers unavailable — never show a raw error to a pilgrim.
+    if not GEMINI_API_KEY and not GROQ_API_KEY:
+        return ("⚠️ The AI brain is not configured yet (missing GEMINI_API_KEY "
+                "and GROQ_API_KEY). Please try one of the menu numbers 1-7, "
+                "or contact the admin.")
+    return ("🙏 Sorry, I'm having trouble thinking right now. "
+            "Please try again in a moment, or reply with a menu number (1-7).")
+
 
 # ---------------------------------------------------------------------------
 # WhatsApp Cloud API helpers
@@ -217,11 +331,24 @@ def handle_incoming_text(from_number: str, text: str) -> str:
             return TELUGU_WELCOME_MESSAGE
         return WELCOME_MESSAGE
 
-    # 3) Otherwise, let the AI (Groq) answer using the knowledge base,
-    #    with a little memory of the recent conversation. This is the ONLY
-    #    path that returns a detailed, specific answer.
+    # 3) DIRECT MATCH (zero API cost): if the expanded keyword/synonym
+    #    engine in knowledge_base.py is confident it found the right Q&A,
+    #    answer straight from the knowledge base — no Gemini/Groq call at
+    #    all. This is what keeps day-to-day running cost near zero.
+    direct = find_best_direct_match(clean)
+    if direct:
+        reply = format_direct_answer(direct, telugu=telugu_pref)
+        history = user_sessions.get(from_number, [])
+        history.append({"role": "user", "content": clean})
+        history.append({"role": "assistant", "content": reply})
+        user_sessions[from_number] = history[-(MAX_HISTORY_TURNS * 2):]
+        return reply
+
+    # 4) No confident direct match — ask the AI (Gemini first, Groq as
+    #    backup), grounded with only the few Q&As relevant to this question.
+    #    This is the ONLY path that calls a paid/rate-limited API.
     history = user_sessions.get(from_number, [])
-    reply = ask_groq(clean, history)
+    reply = get_ai_reply(clean, history)
 
     history.append({"role": "user", "content": clean})
     history.append({"role": "assistant", "content": reply})
