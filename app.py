@@ -129,10 +129,11 @@ def ask_groq(user_message: str, history: list) -> str:
             },
             timeout=20,
         )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
- except Exception as exc:
+            response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+except Exception as exc:
     log.error("Groq API error: %s", exc)
 
     if hasattr(exc, "response") and exc.response is not None:
@@ -144,6 +145,7 @@ def ask_groq(user_message: str, history: list) -> str:
         "🙏 Sorry, I'm having trouble thinking right now."
         " Please try again in a moment, or reply with a menu number (1-7)."
     )
+        
 
 # ---------------------------------------------------------------------------
 # WhatsApp Cloud API helpers
