@@ -113,23 +113,23 @@ def ask_groq(user_message: str, history: list) -> str:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
+try:
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": GROQ_MODEL,
+            "messages": messages,
+            "temperature": 0.3,
+            "max_tokens": 500,
+        },
+        timeout=20,
+    )
 
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": GROQ_MODEL,
-                "messages": messages,
-                "temperature": 0.3,
-                "max_tokens": 500,
-            },
-            timeout=20,
-        )
-            response.raise_for_status()
+    response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"].strip()
 
@@ -145,7 +145,6 @@ except Exception as exc:
         "🙏 Sorry, I'm having trouble thinking right now."
         " Please try again in a moment, or reply with a menu number (1-7)."
     )
-        
 
 # ---------------------------------------------------------------------------
 # WhatsApp Cloud API helpers
