@@ -25,6 +25,22 @@ KNOWLEDGE_BASE = {
 
     "darshan": {
         "title": "🎟️ Darshan & Tickets",
+        "summary": (
+            "*🎟️ Darshan & Tickets*\n\n"
+            "• *Sarva Darshan* – Free, no ticket needed\n"
+            "• *Special Entry Darshan* – ₹300 (advance booking)\n"
+            "• *Divya Darshan* – Via Alipiri / Srivari Mettu footpaths\n"
+            "• *Senior Citizen / Differently Abled* – Special quota available\n"
+            "• Carry your *ticket + original photo ID* for entry\n"
+        ),
+        "summary_te": (
+            "*🎟️ దర్శనం & టికెట్లు*\n\n"
+            "• *సర్వ దర్శనం* – ఉచితం, టికెట్ అవసరం లేదు\n"
+            "• *స్పెషల్ ఎంట్రీ దర్శనం* – ₹300 (ముందస్తు బుకింగ్)\n"
+            "• *దివ్య దర్శనం* – అలిపిరి / శ్రీవారి మెట్టు మార్గాల ద్వారా\n"
+            "• *సీనియర్ సిటిజన్ / దివ్యాంగుల* – ప్రత్యేక కోటా అందుబాటులో\n"
+            "• ప్రవేశానికి *టికెట్ + ఒరిజినల్ ఫోటో ID* తీసుకురావాలి\n"
+        ),
         "qas": [
             {"q": "What is Tirumala Temple?",
              "a": "Tirumala Temple, also known as Sri Venkateswara Swamy Temple, is one of the most sacred Hindu temples dedicated to Lord Venkateswara, an incarnation of Lord Vishnu. It is located in Tirumala, Andhra Pradesh."},
@@ -81,6 +97,20 @@ KNOWLEDGE_BASE = {
 
     "accommodation": {
         "title": "🏨 Accommodation & Free Stay",
+        "summary": (
+            "*🏨 Accommodation & Free Stay*\n\n"
+            "• *Vishnu Nivasam* – Opposite Tirupati Railway Station; rooms, free halls, lockers\n"
+            "• *Madhava Nilayam* – Opposite Tirumala bus stand; free rest halls, lockers, Anna Prasadam\n"
+            "• Free *lockers & bathing* facilities at both complexes\n"
+            "• Choose based on location: Tirupati → Vishnu Nivasam, Tirumala → Madhava Nilayam\n"
+        ),
+        "summary_te": (
+            "*🏨 వసతి & ఉచిత బస*\n\n"
+            "• *విష్ణు నివాసం* – తిరుపతి రైల్వే స్టేషన్ ఎదురుగా; గదులు, ఉచిత హాళ్లు, లాకర్లు\n"
+            "• *మాధవ నిలయం* – తిరుమల బస్ స్టాండ్ ఎదురుగా; ఉచిత రెస్ట్ హాళ్లు, లాకర్లు, అన్న ప్రసాదం\n"
+            "• రెండు చోట్లా ఉచిత *లాకర్లు & స్నానాల* సదుపాయం\n"
+            "• తిరుపతిలో ఉంటే → విష్ణు నివాసం, తిరుమలలో ఉంటే → మాధవ నిలయం\n"
+        ),
         "qas": [
             {"q": "Does TTD provide free accommodation?",
              "a": "Yes. TTD provides free resting halls, dormitories, and accommodation facilities for pilgrims at both Tirupati and Tirumala, subject to availability."},
@@ -127,6 +157,22 @@ KNOWLEDGE_BASE = {
 
     "transport": {
         "title": "🚌 Transportation",
+        "summary": (
+            "*🚌 Transportation*\n\n"
+            "• *Bus* – APSRTC buses run Tirupati ↔ Tirumala frequently\n"
+            "• *Free buses* – Railway Station → Alipiri / Srivari Mettu\n"
+            "• *Own vehicle* – Allowed via Alipiri Check Post\n"
+            "• *Walking* – Srivari Mettu (2.4 km) or Alipiri (11 km)\n"
+            "• *Inside Tirumala* – Free 'Dharma Ratham' buses connect key spots\n"
+        ),
+        "summary_te": (
+            "*🚌 రవాణా*\n\n"
+            "• *బస్సు* – APSRTC బస్సులు తిరుపతి ↔ తిరుమల మధ్య తరచుగా నడుస్తాయి\n"
+            "• *ఉచిత బస్సులు* – రైల్వే స్టేషన్ → అలిపిరి / శ్రీవారి మెట్టు\n"
+            "• *సొంత వాహనం* – అలిపిరి చెక్ పోస్ట్ ద్వారా అనుమతి\n"
+            "• *నడక* – శ్రీవారి మెట్టు (2.4 కి.మీ) లేదా అలిపిరి (11 కి.మీ)\n"
+            "• *తిరుమలలో* – ఉచిత 'ధర్మ రథం' బస్సులు ముఖ్య ప్రదేశాలను కలుపుతాయి\n"
+        ),
         "qas": [
             {"q": "How can I travel from Tirupati to Tirumala?",
              "a": "You can travel by APSRTC bus, private taxi, your own vehicle, or by walking through the Alipiri or Srivari Mettu footpaths."},
@@ -195,6 +241,22 @@ KNOWLEDGE_BASE = {
 
     "history": {
         "title": "📜 Temple History",
+        "summary": (
+            "*📜 Temple History*\n\n"
+            "• *Lord Venkateswara* – Incarnation of Vishnu, appeared to save mankind in Kali Yuga\n"
+            "• Also known as *Balaji, Srinivasa, Govinda*\n"
+            "• Temple built in *Dravidian style* with gold-plated Ananda Nilayam Vimanam\n"
+            "• Devotees offer *hair* as a symbol of surrender & humility\n"
+            "• One of the *richest & most visited* temples in the world\n"
+        ),
+        "summary_te": (
+            "*📜 ఆలయ చరిత్ర*\n\n"
+            "• *శ్రీ వేంకటేశ్వరుడు* – కలియుగంలో మానవాళిని రక్షించడానికి వచ్చిన విష్ణువు అవతారం\n"
+            "• *బాలాజీ, శ్రీనివాసుడు, గోవిందా* అనే పేర్లతో కూడా ప్రసిద్ధి\n"
+            "• *ద్రావిడ శైలి*లో నిర్మించిన ఆలయం, బంగారు ఆనంద నిలయ విమానం\n"
+            "• భక్తులు వినయానికి, శరణాగతికి గుర్తుగా *తలనీలాలు* సమర్పిస్తారు\n"
+            "• ప్రపంచంలో అత్యంత *సంపన్న & ఎక్కువ మంది సందర్శించే* ఆలయాలలో ఒకటి\n"
+        ),
         "qas": [
             {"q": "Who is Lord Venkateswara?",
              "a": "Lord Venkateswara, also known as Sri Balaji, Srinivasa, Govinda, and Venkatachalapathi, is an incarnation of Lord Vishnu who appeared in Tirumala during Kali Yuga to protect humanity and grant salvation to devotees."},
@@ -231,6 +293,22 @@ KNOWLEDGE_BASE = {
 
     "rules": {
         "title": "👕 Dress Code & Temple Rules",
+        "summary": (
+            "*👕 Dress Code & Temple Rules*\n\n"
+            "• *Men* – Dhoti/pyjama + upper cloth or shirt\n"
+            "• *Women* – Saree, half-saree, or churidar with dupatta\n"
+            "• *Not allowed* – Jeans, shorts, sleeveless clothing (for most darshans)\n"
+            "• *Not allowed inside* – Mobile phones, cameras, laptops, footwear, outside food\n"
+            "• No alcohol, smoking, or non-veg food anywhere in Tirumala\n"
+        ),
+        "summary_te": (
+            "*👕 దుస్తుల నియమాలు & ఆలయ నియమాలు*\n\n"
+            "• *పురుషులు* – పంచె/పైజామా + పైన చొక్కా/వస్త్రం\n"
+            "• *మహిళలు* – చీర, హాఫ్ చీర, లేదా చుడీదార్ + దుపట్టా\n"
+            "• *అనుమతి లేదు* – జీన్స్, షార్ట్స్, స్లీవ్‌లెస్ దుస్తులు (చాలా దర్శనాలకు)\n"
+            "• *లోపలికి అనుమతి లేదు* – మొబైల్, కెమెరా, ల్యాప్‌టాప్, చెప్పులు, బయటి ఆహారం\n"
+            "• తిరుమలలో మద్యం, ధూమపానం, మాంసాహారం ఎక్కడా అనుమతి లేదు\n"
+        ),
         "qas": [
             {"q": "What is the dress code for Tirumala Temple?",
              "a": "Devotees are expected to wear traditional Indian attire. Men should wear a dhoti or pyjama with an upper cloth/shirt, while women should wear a saree, half-saree, or churidar/salwar kameez with a dupatta."},
@@ -267,6 +345,22 @@ KNOWLEDGE_BASE = {
 
     "annadanam": {
         "title": "🍛 Annadanam & Laddu Information",
+        "summary": (
+            "*🍛 Annadanam & Laddu Information*\n\n"
+            "• *Anna Prasadam* – Free meals for all pilgrims, served daily\n"
+            "• Served at the *Anna Prasadam Complex*, Tirumala (+ select Tirupati spots)\n"
+            "• *Tirupati Laddu* – Sacred prasadam given after darshan\n"
+            "• Collect laddu using your *darshan ticket/token* at the counter\n"
+            "• ₹300 ticket = 1 free laddu; extra laddus can be purchased\n"
+        ),
+        "summary_te": (
+            "*🍛 అన్నదానం & లడ్డు సమాచారం*\n\n"
+            "• *అన్న ప్రసాదం* – అందరు యాత్రికులకు ఉచిత భోజనం, ప్రతిరోజూ\n"
+            "• తిరుమలలోని *అన్న ప్రసాదం కాంప్లెక్స్*లో (కొన్ని తిరుపతి ప్రదేశాల్లో కూడా)\n"
+            "• *తిరుపతి లడ్డు* – దర్శనం తర్వాత ఇచ్చే పవిత్ర ప్రసాదం\n"
+            "• లడ్డు కోసం మీ *దర్శన టికెట్/టోకెన్* కౌంటర్‌లో చూపించండి\n"
+            "• ₹300 టికెట్‌కు 1 ఉచిత లడ్డు; అదనపు లడ్డులు కొనుగోలు చేయవచ్చు\n"
+        ),
         "qas": [
             {"q": "What is Anna Prasadam?",
              "a": "Anna Prasadam is a free meal service provided by TTD to all pilgrims visiting Tirumala. It is served daily without any charge."},
@@ -303,6 +397,22 @@ KNOWLEDGE_BASE = {
 
     "help": {
         "title": "📞 Help & Contact Information",
+        "summary": (
+            "*📞 Help & Contact Information*\n\n"
+            "• *Website* – https://tirumala.org for bookings & info\n"
+            "• *Call Centre* – For darshan, accommodation, seva queries\n"
+            "• Lost child/belongings → nearest *TTD security / Police Help Desk*\n"
+            "• *Medical help* – Hospitals & first-aid centres available\n"
+            "• Help Desks at Tirupati, Tirumala, railway & bus stations\n"
+        ),
+        "summary_te": (
+            "*📞 సహాయం & సంప్రదింపు వివరాలు*\n\n"
+            "• *వెబ్‌సైట్* – బుకింగ్‌లు & సమాచారం కోసం https://tirumala.org\n"
+            "• *కాల్ సెంటర్* – దర్శనం, వసతి, సేవల ప్రశ్నల కోసం\n"
+            "• పిల్లలు/వస్తువులు పోతే → సమీప *TTD సెక్యూరిటీ / పోలీస్ హెల్ప్ డెస్క్*\n"
+            "• *వైద్య సహాయం* – ఆసుపత్రులు & ఫస్ట్-ఎయిడ్ కేంద్రాలు అందుబాటులో\n"
+            "• తిరుపతి, తిరుమల, రైల్వే & బస్ స్టేషన్లలో హెల్ప్ డెస్క్‌లు\n"
+        ),
         "qas": [
             {"q": "How can I contact TTD?",
              "a": "You can contact TTD through its official Call Centre, website, email, or by visiting the nearest TTD Information Centre."},
@@ -392,16 +502,25 @@ TELUGU_WELCOME_MESSAGE = (
 )
 
 
-def build_category_reply(category_key: str) -> str:
-    """Return a formatted WhatsApp text block for a whole category."""
+def build_category_reply(category_key: str, telugu: bool = False) -> str:
+    """Return a SHORT, bullet-point summary for a category (menu selection).
+
+    This is intentionally short — it does NOT dump the full Q&A list.
+    Detailed Q&A answers are only given when the pilgrim asks a specific
+    question, which is handled separately by the AI (see ask_groq in app.py).
+    """
     cat = KNOWLEDGE_BASE.get(category_key)
     if not cat:
-        return WELCOME_MESSAGE
-    lines = [f"*{cat['title']}*\n"]
-    for qa in cat["qas"][:8]:  # keep first message short; rest via AI Q&A
-        lines.append(f"❓ {qa['q']}\n➡️ {qa['a']}\n")
-    lines.append("💬 Ask me anything else about this topic, in English or Telugu!")
-    return "\n".join(lines)
+        return TELUGU_WELCOME_MESSAGE if telugu else WELCOME_MESSAGE
+
+    if telugu:
+        body = cat.get("summary_te") or cat.get("summary", f"*{cat['title']}*")
+        footer = "\n💬 ఈ విషయం గురించి ఏదైనా ప్రశ్న అడగండి, English లేదా తెలుగులో!"
+    else:
+        body = cat.get("summary") or f"*{cat['title']}*"
+        footer = "\n💬 Ask me anything specific about this topic, in English or Telugu!"
+
+    return f"{body}{footer}"
 
 
 def get_full_knowledge_text() -> str:
