@@ -132,11 +132,18 @@ def ask_groq(user_message: str, history: list) -> str:
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
-    except Exception as exc:  # noqa: BLE001 - keep the bot alive no matter what
-        log.error("Groq API error: %s", exc)
-        return ("🙏 Sorry, I'm having trouble thinking right now. "
-                "Please try again in a moment, or reply with a menu number (1-7).")
+    except Exception as exc:
+    log.error("Groq API error: %s", exc)
 
+    if hasattr(exc, "response") and exc.response is not None:
+        log.error("Status Code: %s", exc.response.status_code)
+        log.error("Response Body: %s", exc.response.text)
+        log.error("Headers: %s", exc.response.headers)
+
+    return (
+        "🙏 Sorry, I'm having trouble thinking right now."
+        " Please try again in a moment, or reply with a menu number (1-7)."
+    )
 
 # ---------------------------------------------------------------------------
 # WhatsApp Cloud API helpers
