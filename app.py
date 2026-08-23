@@ -53,8 +53,8 @@ from knowledge_base import (
 # Configuration (all read from Environment Variables — see .env.example)
 #
 # Two AI providers are configured, both with generous FREE tiers:
-#   1) GEMINI  (primary)  — Google's Gemini API, tried first.
-#   2) GROQ    (backup)   — used automatically if Gemini is not configured,
+#   1) GROQ    (primary)  — very fast inference, tried first.
+#   2) GEMINI  (backup)   — used automatically if Groq is not configured,
 #                           fails, or is rate-limited.
 # Keeping two independent providers means a rate limit or outage on one
 # doesn't take the whole bot down — and between the DIRECT-MATCH engine in
@@ -67,10 +67,10 @@ PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "")
 WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sudarshan-ai")
@@ -119,68 +119,12 @@ KNOWLEDGE BASE (the only source of truth you may use for THIS question):
 """
 
 # ---------------------------------------------------------------------------
-# PROVIDER 1: Gemini AI call (PRIMARY — tried first)
-# ---------------------------------------------------------------------------
-def ask_gemini(user_message: str, history: list, system_prompt: str):
-    """Call Google's Gemini API (free tier). Returns the reply text on
-    success, or None on any failure — so the caller can fall back to Groq
-    without the pilgrim ever seeing an error."""
-    if not GEMINI_API_KEY:
-        return None
-
-    # Gemini's REST API uses "contents" with role "user"/"model" (not
-    # "assistant"), and takes the system prompt as a separate field.
-    contents = []
-    for turn in history:
-        role = "model" if turn["role"] == "assistant" else "user"
-        contents.append({"role": role, "parts": [{"text": turn["content"]}]})
-    contents.append({"role": "user", "parts": [{"text": user_message}]})
-
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    )
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents,
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=20)
-
-        if response.status_code == 429:
-            log.warning("Gemini rate-limited (429) — falling back to Groq.")
-            return None
-
-        if response.status_code >= 400:
-            log.error(
-                "Gemini API error [%s]: %s",
-                response.status_code, response.text
-            )
-            return None
-
-        data = response.json()
-        candidates = data.get("candidates") or []
-        if not candidates:
-            log.warning("Gemini returned no candidates — falling back to Groq.")
-            return None
-        parts = candidates[0].get("content", {}).get("parts", [])
-        text = "".join(p.get("text", "") for p in parts).strip()
-        return text or None
-
-    except Exception as exc:  # noqa: BLE001 - never crash the bot, just fall back
-        log.error("Gemini API error: %s — falling back to Groq.", exc)
-        return None
-
-
-# ---------------------------------------------------------------------------
-# PROVIDER 2: Groq AI call (BACKUP — used only if Gemini is unavailable)
+# PROVIDER 1: Groq AI call (PRIMARY — tried first, very fast inference)
 # ---------------------------------------------------------------------------
 def ask_groq(user_message: str, history: list, system_prompt: str):
     """Send the conversation to Groq's OpenAI-compatible chat completion API.
     Returns the reply text on success, or None on failure (so the caller
-    can show a single graceful final message instead of a raw error)."""
+    can fall back to Gemini without the pilgrim ever seeing an error)."""
     if not GROQ_API_KEY:
         return None
 
@@ -240,9 +184,66 @@ def ask_groq(user_message: str, history: list, system_prompt: str):
 
 
 # ---------------------------------------------------------------------------
-# ORCHESTRATOR: try Gemini first, then Groq, then a graceful final message.
-# This is only reached when the DIRECT-MATCH engine in knowledge_base.py
-# (zero API cost) couldn't confidently answer the question by itself.
+# PROVIDER 2: Gemini AI call (BACKUP — used only if Groq is unavailable)
+# ---------------------------------------------------------------------------
+def ask_gemini(user_message: str, history: list, system_prompt: str):
+    """Call Google's Gemini API (free tier). Returns the reply text on
+    success, or None on any failure — so the caller can show a graceful
+    final message instead of a raw error."""
+    if not GEMINI_API_KEY:
+        return None
+
+    # Gemini's REST API uses "contents" with role "user"/"model" (not
+    # "assistant"), and takes the system prompt as a separate field.
+    contents = []
+    for turn in history:
+        role = "model" if turn["role"] == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": turn["content"]}]})
+    contents.append({"role": "user", "parts": [{"text": user_message}]})
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents,
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+
+        if response.status_code == 429:
+            log.warning("Gemini rate-limited (429).")
+            return None
+
+        if response.status_code >= 400:
+            log.error(
+                "Gemini API error [%s]: %s",
+                response.status_code, response.text
+            )
+            return None
+
+        data = response.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            log.warning("Gemini returned no candidates.")
+            return None
+        parts = candidates[0].get("content", {}).get("parts", [])
+        text = "".join(p.get("text", "") for p in parts).strip()
+        return text or None
+
+    except Exception as exc:  # noqa: BLE001 - never crash the bot
+        log.error("Gemini API error: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# ORCHESTRATOR: try Groq first (fast), then Gemini, then a graceful final
+# message. This is only reached when the DIRECT-MATCH engine in
+# knowledge_base.py (zero API cost) couldn't confidently answer the
+# question by itself.
 # ---------------------------------------------------------------------------
 def get_ai_reply(user_message: str, history: list) -> str:
     # Only pull in the Q&As relevant to THIS question (usually 6 of them,
@@ -252,14 +253,14 @@ def get_ai_reply(user_message: str, history: list) -> str:
     relevant_knowledge = get_relevant_knowledge_text(user_message, top_n=6)
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(knowledge=relevant_knowledge)
 
-    # 1) PRIMARY: Gemini (free tier)
-    reply = ask_gemini(user_message, history, system_prompt)
+    # 1) PRIMARY: Groq (free tier, very fast) — tried first for speed.
+    reply = ask_groq(user_message, history, system_prompt)
     if reply:
         return reply
 
-    # 2) BACKUP: Groq (free tier) — only reached if Gemini is not
+    # 2) BACKUP: Gemini (free tier) — only reached if Groq is not
     #    configured, failed, or was rate-limited.
-    reply = ask_groq(user_message, history, system_prompt)
+    reply = ask_gemini(user_message, history, system_prompt)
     if reply:
         return reply
 
@@ -345,7 +346,7 @@ def handle_incoming_text(from_number: str, text: str) -> str:
 
     # 3) DIRECT MATCH (zero API cost): if the expanded keyword/synonym
     #    engine in knowledge_base.py is confident it found the right Q&A,
-    #    answer straight from the knowledge base — no Gemini/Groq call at
+    #    answer straight from the knowledge base — no Groq/Gemini call at
     #    all. This is what keeps day-to-day running cost near zero.
     direct = find_best_direct_match(clean)
     if direct:
@@ -356,9 +357,10 @@ def handle_incoming_text(from_number: str, text: str) -> str:
         user_sessions[from_number] = history[-(MAX_HISTORY_TURNS * 2):]
         return reply
 
-    # 4) No confident direct match — ask the AI (Gemini first, Groq as
-    #    backup), grounded with only the few Q&As relevant to this question.
-    #    This is the ONLY path that calls a paid/rate-limited API.
+    # 4) No confident direct match — ask the AI (Groq first for speed,
+    #    Gemini as backup), grounded with only the few Q&As relevant to
+    #    this question. This is the ONLY path that calls a paid/rate-limited
+    #    API.
     history = user_sessions.get(from_number, [])
     reply = get_ai_reply(clean, history)
 
