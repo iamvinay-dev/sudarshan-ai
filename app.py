@@ -153,7 +153,13 @@ def ask_gemini(user_message: str, history: list, system_prompt: str):
             log.warning("Gemini rate-limited (429) — falling back to Groq.")
             return None
 
-        response.raise_for_status()
+        if response.status_code >= 400:
+            log.error(
+                "Gemini API error [%s]: %s",
+                response.status_code, response.text
+            )
+            return None
+
         data = response.json()
         candidates = data.get("candidates") or []
         if not candidates:
@@ -216,7 +222,13 @@ def ask_groq(user_message: str, history: list, system_prompt: str):
                     continue
                 return None
 
-            response.raise_for_status()
+            if response.status_code >= 400:
+                log.error(
+                    "Groq API error [%s]: %s",
+                    response.status_code, response.text
+                )
+                return None
+
             data = response.json()
             return data["choices"][0]["message"]["content"].strip()
 
@@ -431,4 +443,4 @@ def receive_webhook():
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
