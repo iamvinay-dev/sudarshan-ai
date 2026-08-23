@@ -5,7 +5,7 @@ app.py
 Sudarshan AI - a free WhatsApp chatbot for TTD (Tirumala Tirupati Devasthanams)
 pilgrims, built with:
     - Flask            (web server / webhook receiver)
-    - requests          (to call the Groq AI API and the WhatsApp Cloud API)
+    - requests          (to call the AI APIs and the WhatsApp Cloud API)
     - gunicorn           (production server used by Render, see Procfile)
 
 NO DATABASE is used. All knowledge lives in knowledge_base.py.
@@ -52,25 +52,28 @@ from knowledge_base import (
 # ---------------------------------------------------------------------------
 # Configuration (all read from Environment Variables — see .env.example)
 #
-# Two AI providers are configured, both with generous FREE tiers:
-#   1) GROQ    (primary)  — very fast inference, tried first.
-#   2) GEMINI  (backup)   — used automatically if Groq is not configured,
-#                           fails, or is rate-limited.
-# Keeping two independent providers means a rate limit or outage on one
-# doesn't take the whole bot down — and between the DIRECT-MATCH engine in
-# knowledge_base.py and this two-provider fallback, actual paid-API calls
-# are kept to a minimum.
+# Three AI providers are configured, all with free tiers:
+#   1) GROQ    (primary)   — very fast inference, tried first.
+#   2) COHERE  (2nd backup) — used if Groq is unavailable.
+#   3) GEMINI  (3rd backup) — used if both Groq and Cohere fail.
+# Keeping multiple independent providers means a rate limit or outage on
+# one doesn't take the whole bot down — and between the DIRECT-MATCH
+# engine in knowledge_base.py and this fallback chain, actual paid-API
+# calls are kept to a minimum.
 # ---------------------------------------------------------------------------
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan_verify_token")
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "")
 WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
 
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY", "")
+COHERE_MODEL = os.environ.get("COHERE_MODEL", "command-r-plus")
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
-
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sudarshan-ai")
@@ -89,11 +92,8 @@ user_lang = {}
 
 # ---------------------------------------------------------------------------
 # System prompt TEMPLATE (the {knowledge} part is filled in per-question,
-# with ONLY the handful of Q&As relevant to that question — see ask_groq()
-# below). Previously the ENTIRE knowledge base (~24,000 characters, 6,000+
-# tokens) was embedded here and sent on every single message, which used up
-# Groq's free-tier tokens-per-minute budget almost instantly and caused
-# "429 Too Many Requests" errors on the very next question.
+# with ONLY the handful of Q&As relevant to that question) — this keeps
+# free-tier token usage low across all three providers.
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT_TEMPLATE = """You are "Sudarshan AI", a warm, respectful WhatsApp assistant that helps
 pilgrims visiting Tirumala Tirupati Devasthanams (TTD) temple, Andhra Pradesh, India.
@@ -108,8 +108,16 @@ RULES YOU MUST FOLLOW:
    - If they write in Telugu (Telugu script or Romanized "Tenglish"), reply in Telugu.
    - If they write in English, reply in English.
    - Keep the tone respectful and simple — many pilgrims are elderly or first-time users.
-4. Keep answers short and WhatsApp-friendly: use short paragraphs, simple words,
-   and emojis sparingly (🙏 🛕 🎟️ 🚌 🏨) where natural.
+4.4. Structure your answers clearly using WhatsApp's own formatting:
+   - Use *asterisks* around important words or short sub-headings to make
+     them bold (e.g. *Darshan Timings*, *Ticket Price*). WhatsApp renders
+     single asterisks as bold — never use ** or Markdown-style headers (#).
+   - Use bullet points (•) or numbered lists for steps, timings, or
+     multiple options.
+   - Use emojis naturally and often where they add warmth or clarity
+     (🙏 🛕 🎟️ 🚌 🏨 ⏰ 📍 💰 ✅), especially next to bold sub-headings.
+   - Give complete, useful detail — don't cut information short.
+   - Keep paragraphs short so it's easy to read on a phone screen..
 5. Be warm and devotional in tone, like a helpful temple volunteer, but stay factual.
 6. If asked something totally unrelated to Tirumala/TTD pilgrimage, gently redirect
    the conversation back to how you can help with their Tirumala visit.
@@ -124,7 +132,8 @@ KNOWLEDGE BASE (the only source of truth you may use for THIS question):
 def ask_groq(user_message: str, history: list, system_prompt: str):
     """Send the conversation to Groq's OpenAI-compatible chat completion API.
     Returns the reply text on success, or None on failure (so the caller
-    can fall back to Gemini without the pilgrim ever seeing an error)."""
+    can fall back to the next provider without the pilgrim ever seeing an
+    error)."""
     if not GROQ_API_KEY:
         return None
 
@@ -136,7 +145,6 @@ def ask_groq(user_message: str, history: list, system_prompt: str):
         "model": GROQ_MODEL,
         "messages": messages,
         "temperature": 0.3,
-        "max_tokens": 400,
     }
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -184,7 +192,65 @@ def ask_groq(user_message: str, history: list, system_prompt: str):
 
 
 # ---------------------------------------------------------------------------
-# PROVIDER 2: Gemini AI call (BACKUP — used only if Groq is unavailable)
+# PROVIDER 2: Cohere AI call (2nd BACKUP — used if Groq is unavailable)
+# ---------------------------------------------------------------------------
+def ask_cohere(user_message: str, history: list, system_prompt: str):
+    """Call Cohere's Chat API (free tier). Returns the reply text on
+    success, or None on any failure — so the caller can fall back to
+    Gemini without the pilgrim ever seeing an error."""
+    if not COHERE_API_KEY:
+        return None
+
+    # Cohere's chat_history uses roles "USER" / "CHATBOT" (not
+    # "user" / "assistant"), and takes the system prompt as a separate
+    # "preamble" field.
+    chat_history = []
+    for turn in history:
+        role = "CHATBOT" if turn["role"] == "assistant" else "USER"
+        chat_history.append({"role": role, "message": turn["content"]})
+
+    payload = {
+        "model": COHERE_MODEL,
+        "message": user_message,
+        "chat_history": chat_history,
+        "preamble": system_prompt,
+        "temperature": 0.3,
+    }
+    headers = {
+        "Authorization": f"Bearer {COHERE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            "https://api.cohere.ai/v1/chat",
+            headers=headers,
+            json=payload,
+            timeout=20,
+        )
+
+        if response.status_code == 429:
+            log.warning("Cohere rate-limited (429).")
+            return None
+
+        if response.status_code >= 400:
+            log.error(
+                "Cohere API error [%s]: %s",
+                response.status_code, response.text
+            )
+            return None
+
+        data = response.json()
+        text = (data.get("text") or "").strip()
+        return text or None
+
+    except Exception as exc:  # noqa: BLE001 - never crash the bot
+        log.error("Cohere API error: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# PROVIDER 3: Gemini AI call (3rd BACKUP — used if Groq and Cohere fail)
 # ---------------------------------------------------------------------------
 def ask_gemini(user_message: str, history: list, system_prompt: str):
     """Call Google's Gemini API (free tier). Returns the reply text on
@@ -208,7 +274,7 @@ def ask_gemini(user_message: str, history: list, system_prompt: str):
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
+        "generationConfig": {"temperature": 0.3},
     }
 
     try:
@@ -240,16 +306,15 @@ def ask_gemini(user_message: str, history: list, system_prompt: str):
 
 
 # ---------------------------------------------------------------------------
-# ORCHESTRATOR: try Groq first (fast), then Gemini, then a graceful final
-# message. This is only reached when the DIRECT-MATCH engine in
-# knowledge_base.py (zero API cost) couldn't confidently answer the
-# question by itself.
+# ORCHESTRATOR: try Groq first (fast), then Cohere, then Gemini, then a
+# graceful final message. This is only reached when the DIRECT-MATCH
+# engine in knowledge_base.py (zero API cost) couldn't confidently answer
+# the question by itself.
 # ---------------------------------------------------------------------------
 def get_ai_reply(user_message: str, history: list) -> str:
     # Only pull in the Q&As relevant to THIS question (usually 6 of them,
-    # a few hundred tokens) instead of the whole knowledge base — this is
-    # what fixed the earlier Groq 429 "Too Many Requests" errors, and it
-    # keeps Gemini's free-tier usage low too.
+    # a few hundred tokens) instead of the whole knowledge base — this
+    # keeps free-tier usage low across all three providers.
     relevant_knowledge = get_relevant_knowledge_text(user_message, top_n=6)
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(knowledge=relevant_knowledge)
 
@@ -258,17 +323,23 @@ def get_ai_reply(user_message: str, history: list) -> str:
     if reply:
         return reply
 
-    # 2) BACKUP: Gemini (free tier) — only reached if Groq is not
+    # 2) 2nd BACKUP: Cohere (free tier) — reached if Groq is not
     #    configured, failed, or was rate-limited.
+    reply = ask_cohere(user_message, history, system_prompt)
+    if reply:
+        return reply
+
+    # 3) 3rd BACKUP: Gemini (free tier) — reached if both Groq and Cohere
+    #    failed.
     reply = ask_gemini(user_message, history, system_prompt)
     if reply:
         return reply
 
-    # 3) Both providers unavailable — never show a raw error to a pilgrim.
-    if not GEMINI_API_KEY and not GROQ_API_KEY:
-        return ("⚠️ The AI brain is not configured yet (missing GEMINI_API_KEY "
-                "and GROQ_API_KEY). Please try one of the menu numbers 1-7, "
-                "or contact the admin.")
+    # 4) All providers unavailable — never show a raw error to a pilgrim.
+    if not GROQ_API_KEY and not COHERE_API_KEY and not GEMINI_API_KEY:
+        return ("⚠️ The AI brain is not configured yet (missing GROQ_API_KEY, "
+                "COHERE_API_KEY and GEMINI_API_KEY). Please try one of the "
+                "menu numbers 1-7, or contact the admin.")
     return ("🙏 Sorry, I'm having trouble thinking right now. "
             "Please try again in a moment, or reply with a menu number (1-7).")
 
@@ -346,8 +417,8 @@ def handle_incoming_text(from_number: str, text: str) -> str:
 
     # 3) DIRECT MATCH (zero API cost): if the expanded keyword/synonym
     #    engine in knowledge_base.py is confident it found the right Q&A,
-    #    answer straight from the knowledge base — no Groq/Gemini call at
-    #    all. This is what keeps day-to-day running cost near zero.
+    #    answer straight from the knowledge base — no AI call at all.
+    #    This is what keeps day-to-day running cost near zero.
     direct = find_best_direct_match(clean)
     if direct:
         reply = format_direct_answer(direct, telugu=telugu_pref)
@@ -358,9 +429,9 @@ def handle_incoming_text(from_number: str, text: str) -> str:
         return reply
 
     # 4) No confident direct match — ask the AI (Groq first for speed,
-    #    Gemini as backup), grounded with only the few Q&As relevant to
-    #    this question. This is the ONLY path that calls a paid/rate-limited
-    #    API.
+    #    then Cohere, then Gemini), grounded with only the few Q&As
+    #    relevant to this question. This is the ONLY path that calls a
+    #    paid/rate-limited API.
     history = user_sessions.get(from_number, [])
     reply = get_ai_reply(clean, history)
 
@@ -440,7 +511,7 @@ def receive_webhook():
     return "OK", 200
 
 
-# ---------------------------------------------------------------------------
+ #---------------------------------------------------------------------------
 # Local dev entrypoint (Render uses gunicorn via the Procfile instead)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
