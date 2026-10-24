@@ -10,6 +10,7 @@ PHASE 2 (database)   db.py logs every question under an anonymous pilgrim ID
                      like #1001 (no phone numbers stored), and loads the
                      knowledge base from Supabase (falls back to the Python file).
 PHASE 3 (cache)      repeated AI answers come from a cache = faster + free.
+PHASE 4 (admin)      admin.py adds the private admin website at /admin.
 
 Reply order for every message:
     menu number -> greeting -> guardrails -> direct KB match -> cache -> AI
@@ -36,6 +37,7 @@ if load_dotenv is not None:
 
 import guardrails
 import db
+import admin
 import knowledge_base
 from knowledge_base import (
     CATEGORY_MAP,
@@ -82,6 +84,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sudarshan-ai")
 
 app = Flask(__name__)
+admin.register(app)      # private admin website at /admin (needs SECRET_KEY to switch on)
 
 # Tiny in-memory stores (reset on restart, NOT a database)
 user_sessions = {}       # { phone: [ {role, content}, ... ] }
@@ -106,6 +109,7 @@ def _ensure_background() -> None:
         if db.db_configured():
             db.submit(db.refresh_kb, knowledge_base)   # load KB right away
             db.start_kb_refresh_loop(knowledge_base)   # then every 5 minutes
+            db.submit(admin.ensure_bootstrap)          # create the first admin if needed
             if not db.PHONE_HASH_SECRET:
                 log.error("PHONE_HASH_SECRET is not set - query logging is OFF.")
         else:
