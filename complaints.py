@@ -15,8 +15,11 @@ Privacy:
     did not choose "anonymous", and only if PHONE_ENC_SECRET is set.
   * Complaint text is never sent to an AI model.
 
-All functions return plain text. The conversation state lives in memory (it is only
-needed for a few minutes).
+All functions return plain text.
+Conversation state: it is kept in RAM while a message is processed. Between messages
+app.py saves it in Supabase (export_state) and loads it again (import_state), so the
+bot never "forgets" the question it just asked, even after a restart or when Render
+runs more than one worker.
 """
 
 import re
@@ -88,6 +91,38 @@ def clear(phone):
 
 def in_flow(phone) -> bool:
     return _get(phone) is not None
+
+
+def export_state(phone):
+    """The current step of this pilgrim as a small JSON-friendly dict (or None).
+    Free text is redacted first, because it is saved in the database between messages."""
+    s = _get(phone)
+    if not s:
+        return None
+    data = {}
+    for key, value in s["data"].items():
+        if isinstance(value, str) and key in ("details", "last_question"):
+            value = db.redact(value)[:1000]
+        data[key] = value
+    return {"step": s["step"], "ts": s["ts"], "data": data}
+
+
+def import_state(phone, saved):
+    """Load a step that export_state saved earlier (None clears the step)."""
+    if not isinstance(saved, dict) or not saved.get("step"):
+        _state.pop(phone, None)
+        return
+    try:
+        ts = float(saved.get("ts") or 0)
+    except (TypeError, ValueError):
+        ts = 0.0
+    if time.time() - ts > STATE_TTL:
+        _state.pop(phone, None)
+        return
+    data = saved.get("data")
+    _state[phone] = {"step": saved["step"], "ts": ts, "data": data if isinstance(data, dict) else {}}
+    while len(_state) > MAX_STATES:
+        _state.pop(next(iter(_state)))
 
 
 # ---------------------------------------------------------------------------
