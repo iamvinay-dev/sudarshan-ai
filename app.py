@@ -3,24 +3,16 @@
 app.py
 ------
 Sudarshan AI - a free WhatsApp chatbot for TTD (Tirumala Tirupati Devasthanams)
-pilgrims, built with:
-    - Flask      (web server / webhook receiver)
-    - requests   (to call the AI APIs and the WhatsApp Cloud API)
-    - gunicorn   (production server used by Render, see Procfile)
+pilgrims, built with Flask + requests + gunicorn (see Procfile).
 
-PHASE 1 UPDATE (safety):
-    - guardrails.py screens every message BEFORE any AI call
-      (prompt injection, questions about the bot itself, off-topic, small talk)
-    - AI replies are cleaned before sending (no model / provider / prompt leaks)
-    - Pilgrim phone numbers are no longer written to the logs
-    - Optional Meta signature check (set META_APP_SECRET to enable)
-    - Duplicate webhook deliveries from Meta are ignored
+PHASE 1 (safety)     guardrails.py screens every message before any AI call.
+PHASE 2 (database)   db.py logs every question under an anonymous pilgrim ID
+                     like #1001 (no phone numbers stored), and loads the
+                     knowledge base from Supabase (falls back to the Python file).
+PHASE 3 (cache)      repeated AI answers come from a cache = faster + free.
 
-Flow:
-    1. Meta sends a GET request to /webhook to verify your server (once).
-    2. Every time a pilgrim sends a WhatsApp message, Meta POSTs it to /webhook.
-    3. We decide the reply (menu / guardrail / direct answer / AI answer)
-       and send it back using the WhatsApp Cloud API.
+Reply order for every message:
+    menu number -> greeting -> guardrails -> direct KB match -> cache -> AI
 """
 
 import os
@@ -28,6 +20,7 @@ import time
 import hmac
 import hashlib
 import logging
+import threading
 from collections import OrderedDict
 
 import requests
@@ -42,6 +35,8 @@ if load_dotenv is not None:
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 import guardrails
+import db
+import knowledge_base
 from knowledge_base import (
     CATEGORY_MAP,
     WELCOME_MESSAGE,
@@ -51,23 +46,23 @@ from knowledge_base import (
     find_best_direct_match,
     format_direct_answer,
     expand_query_concepts,
+    search_relevant_qas,
 )
 
 # ---------------------------------------------------------------------------
-# Configuration (all read from Environment Variables)
-#
-# AI providers (all free tiers), tried in this order:
-#   1) GROQ    2) COHERE    3) GEMINI
+# Configuration (Environment Variables)
 # ---------------------------------------------------------------------------
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "sudarshan_verify_token")
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID", "")
 WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
 
-# OPTIONAL: Meta App Secret (Meta developer console -> App settings -> Basic).
-# If set, every webhook POST must carry a valid Meta signature, so nobody
-# else can send fake messages to your bot. Leave empty to skip this check.
+# OPTIONAL: if set, only genuine Meta webhook calls are accepted.
 META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
+
+# TEMPORARY: only used once to copy the knowledge base into Supabase.
+# Delete this variable from Render afterwards (the route then disappears).
+MIGRATE_TOKEN = os.environ.get("MIGRATE_TOKEN", "")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
@@ -78,9 +73,8 @@ COHERE_MODEL = os.environ.get("COHERE_MODEL", "command-r-plus")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
-# Used only to turn phone numbers into short anonymous tags for the logs.
-# (Phase 2 will use the same secret to create pilgrim IDs like #1001.)
-PHONE_HASH_SECRET = os.environ.get("PHONE_HASH_SECRET") or os.urandom(16).hex()
+# Short anonymous tags for log lines when the database is not available.
+LOG_SALT = os.environ.get("PHONE_HASH_SECRET") or os.urandom(16).hex()
 
 MAX_INPUT_CHARS = 1000
 
@@ -96,21 +90,39 @@ MAX_HISTORY_TURNS = 3
 MAX_TRACKED_USERS = 5000
 _seen_message_ids = OrderedDict()
 
+# Background startup (knowledge base refresh loop) - started on first request
+_bg_lock = threading.Lock()
+_bg_started = False
+
+
+def _ensure_background() -> None:
+    global _bg_started
+    if _bg_started:
+        return
+    with _bg_lock:
+        if _bg_started:
+            return
+        _bg_started = True
+        if db.db_configured():
+            db.submit(db.refresh_kb, knowledge_base)   # load KB right away
+            db.start_kb_refresh_loop(knowledge_base)   # then every 5 minutes
+            if not db.PHONE_HASH_SECRET:
+                log.error("PHONE_HASH_SECRET is not set - query logging is OFF.")
+        else:
+            log.warning("Supabase is not configured - running without a database.")
+
 
 def _trim(store: dict, limit: int = MAX_TRACKED_USERS) -> None:
-    """Keep the in-memory dicts from growing forever."""
     while len(store) > limit:
         store.pop(next(iter(store)))
 
 
 def _short_id(number: str) -> str:
-    """Anonymous tag for logs, e.g. 'u-3fa91c2b'. Never log the real number."""
-    digest = hmac.new(PHONE_HASH_SECRET.encode(), str(number).encode(), hashlib.sha256)
+    digest = hmac.new(LOG_SALT.encode(), str(number).encode(), hashlib.sha256)
     return "u-" + digest.hexdigest()[:8]
 
 
 def _already_processed(message_id: str) -> bool:
-    """Meta sometimes delivers the same message twice. Ignore repeats."""
     if not message_id:
         return False
     if message_id in _seen_message_ids:
@@ -122,8 +134,7 @@ def _already_processed(message_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# System prompt (the {knowledge} part is filled in per question with ONLY the
-# few Q&As relevant to that question - keeps free-tier token usage low)
+# System prompt
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT_TEMPLATE = """You are "Sudarshan AI", a warm, respectful WhatsApp assistant that helps
 pilgrims visiting Tirumala Tirupati Devasthanams (TTD), Andhra Pradesh, India.
@@ -190,7 +201,6 @@ NON_TEXT_REPLY_TE = (
 # PROVIDER 1: Groq (PRIMARY)
 # ---------------------------------------------------------------------------
 def ask_groq(user_message: str, history: list, system_prompt: str):
-    """Returns reply text, or None on failure (caller tries the next provider)."""
     if not GROQ_API_KEY:
         return None
 
@@ -224,9 +234,8 @@ def ask_groq(user_message: str, history: list, system_prompt: str):
             if response.status_code >= 400:
                 log.error("Groq API error [%s]", response.status_code)
                 return None
-            data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
-        except Exception as exc:  # noqa: BLE001 - keep the bot alive
+            return response.json()["choices"][0]["message"]["content"].strip()
+        except Exception as exc:  # noqa: BLE001
             log.error("Groq API exception: %s", type(exc).__name__)
             return None
     return None
@@ -273,9 +282,7 @@ def ask_cohere(user_message: str, history: list, system_prompt: str):
 
 
 # ---------------------------------------------------------------------------
-# PROVIDER 3: Gemini (2nd backup)
-# The API key is sent in a header (not in the URL) so it can never leak
-# into error messages or logs.
+# PROVIDER 3: Gemini (2nd backup) - key sent in a header, never in the URL
 # ---------------------------------------------------------------------------
 def ask_gemini(user_message: str, history: list, system_prompt: str):
     if not GEMINI_API_KEY:
@@ -318,14 +325,12 @@ def ask_gemini(user_message: str, history: list, system_prompt: str):
 
 # ---------------------------------------------------------------------------
 # ORCHESTRATOR: Groq -> Cohere -> Gemini -> generic fallback.
-# Returns (reply_text, reason). reason: "ok" | "offtopic" | "identity" |
-# "leak" | "fallback"
+# Returns (reply_text, reason): "ok" | "offtopic" | "identity" | "leak" | "fallback"
 # ---------------------------------------------------------------------------
 def get_ai_reply(user_message: str, history: list, telugu: bool = False):
     relevant_knowledge = get_relevant_knowledge_text(user_message, top_n=6)
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(knowledge=relevant_knowledge)
 
-    # Wrap the pilgrim's text so the AI treats it as data, not instructions.
     safe_text = user_message.replace("<", "").replace(">", "")
     wrapped = f"<pilgrim_message>\n{safe_text}\n</pilgrim_message>"
 
@@ -334,7 +339,6 @@ def get_ai_reply(user_message: str, history: list, telugu: bool = False):
         or ask_cohere(wrapped, history, system_prompt)
         or ask_gemini(wrapped, history, system_prompt)
     )
-
     if not raw:
         if not (GROQ_API_KEY or COHERE_API_KEY or GEMINI_API_KEY):
             log.error("No AI provider key is configured.")
@@ -383,99 +387,139 @@ def is_telugu(text: str) -> bool:
     return any("\u0c00" <= ch <= "\u0c7f" for ch in text)
 
 
-def handle_incoming_text(from_number: str, text: str) -> str:
+def _meta(source, language, category=None, matched=None, answered=True):
+    """Details saved with every logged question (used by the admin panel)."""
+    return {"source": source, "language": language, "category": category,
+            "matched_question": matched, "answered": answered}
+
+
+def _remember(from_number, clean, reply):
+    history = user_sessions.get(from_number, [])
+    history.append({"role": "user", "content": clean})
+    history.append({"role": "assistant", "content": reply})
+    user_sessions[from_number] = history[-(MAX_HISTORY_TURNS * 2):]
+    _trim(user_sessions)
+
+
+def process_text(from_number: str, text: str):
+    """Decide the reply. Returns (reply_text, meta_dict_for_logging)."""
     clean = (text or "").strip()[:MAX_INPUT_CHARS]
     if not clean:
-        return WELCOME_MESSAGE
+        return WELCOME_MESSAGE, _meta("greeting", "en")
     lowered = clean.lower()
 
-    # Remember the pilgrim's language (a bare digit tells us nothing).
     if is_telugu(clean):
         user_lang[from_number] = "te"
     elif not clean.isdigit() and lowered not in GREETING_WORDS:
         user_lang[from_number] = "en"
     _trim(user_lang)
     telugu_pref = user_lang.get(from_number) == "te"
+    lang = "te" if (telugu_pref or is_telugu(clean)) else "en"
 
-    # 1) Numbered menu selection (1-7) -> short summary
+    # 1) Numbered menu selection
     if clean in CATEGORY_MAP:
-        return build_category_reply(CATEGORY_MAP[clean], telugu=telugu_pref)
+        return (build_category_reply(CATEGORY_MAP[clean], telugu=telugu_pref),
+                _meta("menu", lang, category=CATEGORY_MAP[clean]))
 
     # 2) Greeting / menu request
     if lowered in GREETING_WORDS or clean in {"0", "9"}:
         if is_telugu(clean):
             user_lang[from_number] = "te"
-            return TELUGU_WELCOME_MESSAGE
-        return WELCOME_MESSAGE
+            return TELUGU_WELCOME_MESSAGE, _meta("greeting", "te")
+        return WELCOME_MESSAGE, _meta("greeting", lang)
 
-    # 3) GUARDRAILS (no AI call): injection, questions about the bot,
-    #    small talk, clearly off-topic questions.
+    # 3) Guardrails (no AI call)
     domain_hint = bool(expand_query_concepts(clean))
     guard_reply, guard_reason = guardrails.screen_input(clean, telugu_pref, domain_hint)
     if guard_reply:
         log.info("Guardrail handled message from %s: %s", _short_id(from_number), guard_reason)
-        return guard_reply
+        return guard_reply, _meta("guardrail", lang, category=guard_reason)
 
-    # 4) DIRECT MATCH from the knowledge base (zero AI cost)
+    # 4) Direct match from the knowledge base (zero AI cost)
     direct = find_best_direct_match(clean)
     if direct:
         reply = format_direct_answer(direct, telugu=telugu_pref)
-        history = user_sessions.get(from_number, [])
-        history.append({"role": "user", "content": clean})
-        history.append({"role": "assistant", "content": reply})
-        user_sessions[from_number] = history[-(MAX_HISTORY_TURNS * 2):]
-        _trim(user_sessions)
-        return reply
+        _remember(from_number, clean, reply)
+        return reply, _meta("direct", lang, category=direct[0], matched=direct[1])
 
-    # 5) AI answer (Groq -> Cohere -> Gemini), then cleaned by guardrails
+    # Best-guess category for the admin charts
+    category = "unknown"
+    if domain_hint:
+        top = search_relevant_qas(clean, top_n=1)
+        if top:
+            category = top[0][0]
+
+    # 5) Cache (AI answers only). Very short follow-ups such as "and for kids?"
+    #    depend on the previous message, so they are never cached.
     history = user_sessions.get(from_number, [])
-    reply, reason = get_ai_reply(clean, history, telugu_pref or is_telugu(clean))
+    is_followup = bool(history) and len(clean.split()) <= 4 and not domain_hint
+    key = None if is_followup else db.cache_key(clean, lang)
+    if key:
+        cached = db.cache_get(key)
+        if cached:
+            _remember(from_number, clean, cached)
+            return cached, _meta("cache", lang, category=category)
 
-    # Only genuine answers are remembered as chat history
+    # 6) AI answer (Groq -> Cohere -> Gemini), cleaned by guardrails
+    reply, reason = get_ai_reply(clean, history, lang == "te")
+
     if reason == "ok":
-        history.append({"role": "user", "content": clean})
-        history.append({"role": "assistant", "content": reply})
-        user_sessions[from_number] = history[-(MAX_HISTORY_TURNS * 2):]
-        _trim(user_sessions)
-    else:
-        log.info("AI path for %s ended with: %s", _short_id(from_number), reason)
+        _remember(from_number, clean, reply)
+        if key:
+            db.cache_set(key, reply)
+        return reply, _meta("ai", lang, category=category)
+    if reason in ("offtopic", "identity"):
+        return reply, _meta("guardrail", lang, category=reason)
 
-    return reply
+    log.info("AI path for %s ended with: %s", _short_id(from_number), reason)
+    return reply, _meta("fallback", lang, category=category, answered=False)
+
+
+def handle_incoming_text(from_number: str, text: str) -> str:
+    """Kept for test_local.py and older code: returns only the reply text."""
+    return process_text(from_number, text)[0]
 
 
 def _process_message(message: dict) -> None:
     from_number = message.get("from", "")
     msg_type = message.get("type")
+    wa_id = message.get("id")
 
-    if not from_number or _already_processed(message.get("id")):
+    if not from_number or _already_processed(wa_id):
         return
 
     log.info("Message from %s (type=%s)", _short_id(from_number), msg_type)
+    started = time.time()
+    text, meta = None, None
 
     if msg_type == "text":
-        reply_text = handle_incoming_text(
-            from_number, message.get("text", {}).get("body", "")
-        )
+        text = message.get("text", {}).get("body", "")
     elif msg_type == "interactive":
         interactive = message.get("interactive", {})
-        selection = (
+        text = (
             interactive.get("button_reply", {}).get("title")
             or interactive.get("list_reply", {}).get("title")
             or ""
         )
-        reply_text = handle_incoming_text(from_number, selection)
+
+    if text is not None:
+        reply_text, meta = process_text(from_number, text)
     else:
         te = user_lang.get(from_number) == "te"
         reply_text = NON_TEXT_REPLY_TE if te else NON_TEXT_REPLY_EN
 
+    elapsed_ms = int((time.time() - started) * 1000)
     send_whatsapp_message(from_number, reply_text)
+
+    # Save to Supabase AFTER replying, in the background.
+    if meta is not None:
+        db.submit(db.log_interaction, from_number, text, reply_text, meta, wa_id, elapsed_ms)
 
 
 # ---------------------------------------------------------------------------
 # Webhook security
 # ---------------------------------------------------------------------------
 def _signature_ok(raw_body: bytes) -> bool:
-    """If META_APP_SECRET is set, require a valid X-Hub-Signature-256."""
     if not META_APP_SECRET:
         return True
     header = request.headers.get("X-Hub-Signature-256", "")
@@ -490,6 +534,7 @@ def _signature_ok(raw_body: bytes) -> bool:
 # ---------------------------------------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
+    _ensure_background()
     return jsonify({"status": "ok"})
 
 
@@ -500,7 +545,7 @@ def verify_webhook():
     token = request.args.get("hub.verify_token", "")
     challenge = request.args.get("hub.challenge", "")
 
-    if mode == "subscribe" and hmac.compare_digest(token, VERIFY_TOKEN):
+    if mode == "subscribe" and hmac.compare_digest(token.encode(), VERIFY_TOKEN.encode()):
         log.info("Webhook verified successfully.")
         return challenge, 200
     log.warning("Webhook verification failed.")
@@ -510,13 +555,13 @@ def verify_webhook():
 @app.route("/webhook", methods=["POST"])
 def receive_webhook():
     """Meta POSTs every incoming WhatsApp event here."""
+    _ensure_background()
     raw_body = request.get_data()
     if not _signature_ok(raw_body):
         log.warning("Webhook rejected: bad signature.")
         return "Forbidden", 403
 
     data = request.get_json(silent=True) or {}
-
     try:
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
@@ -527,6 +572,19 @@ def receive_webhook():
         log.exception("Error while processing webhook")
 
     return "OK", 200
+
+
+@app.route("/internal/migrate-kb", methods=["GET"])
+def migrate_kb_route():
+    """ONE-TIME: copies knowledge_base.py into Supabase.
+    Works only while the MIGRATE_TOKEN variable exists in Render."""
+    supplied = request.args.get("token", "")
+    if not MIGRATE_TOKEN or not hmac.compare_digest(supplied.encode(), MIGRATE_TOKEN.encode()):
+        return "Not found", 404
+    ok, message = db.migrate_kb(knowledge_base, force=request.args.get("force") == "1")
+    if ok:
+        db.refresh_kb(knowledge_base)
+    return jsonify({"ok": ok, "message": message}), (200 if ok else 400)
 
 
 # ---------------------------------------------------------------------------
