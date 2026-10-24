@@ -17,6 +17,9 @@ What this file does:
                            Python file if Supabase is unreachable).
     5. One-time migration of knowledge_base.py into Supabase.
     6. Feedback          - "solved / not solved" + rating + problem text.
+    7. Conversation memory - where each pilgrim is in a chat (complaint step, last
+                           5 exchanges, language) is saved in Supabase, keyed by the
+                           anonymous hash, so it survives restarts and many workers.
 
 Talks to Supabase through its REST API using only `requests` (the `cryptography`
 package is used ONLY to encrypt phone numbers for the contact-back feature).
@@ -294,6 +297,65 @@ def save_problem(feedback_id, pilgrim_id, phone, problem_text):
             stored = _request("PATCH", "pilgrims", params={"id": f"eq.{pilgrim_id}"},
                               body={"phone_enc": token}, prefer="return=minimal") is not None
     return ok, stored
+
+
+# ---------------------------------------------------------------------------
+# Conversation memory (Phase 7): survives restarts and several workers.
+# Keyed by the anonymous hash - never the phone number. Rows older than
+# CONV_RETENTION_HOURS are deleted automatically.
+# ---------------------------------------------------------------------------
+CONV_RETENTION_HOURS = 24
+_conv_thread_started = False
+
+
+def conv_load(phone):
+    """Returns the saved conversation dict ({} if none yet), or None if the
+    database could not be read (then the caller keeps using its RAM copy)."""
+    if not logging_enabled():
+        return None
+    rows = _json(_request(
+        "GET", "conversations",
+        params={"select": "data", "phone_hash": f"eq.{phone_hash(phone)}", "limit": "1"}, timeout=3))
+    if rows is None:
+        return None
+    if not rows:
+        return {}
+    data = rows[0].get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def conv_save(phone, data) -> bool:
+    """Save (insert or replace) the conversation of one pilgrim."""
+    if not logging_enabled():
+        return False
+    resp = _request(
+        "POST", "conversations", params={"on_conflict": "phone_hash"},
+        body={"phone_hash": phone_hash(phone), "data": data,
+              "updated_at": datetime.now(timezone.utc).isoformat()},
+        prefer="return=minimal,resolution=merge-duplicates", timeout=4)
+    return resp is not None
+
+
+def conv_cleanup() -> None:
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=CONV_RETENTION_HOURS)).isoformat()
+    _request("DELETE", "conversations", params={"updated_at": f"lt.{cutoff}"}, prefer="return=minimal")
+
+
+def start_conv_cleanup_loop(interval_seconds: int = 3600) -> None:
+    global _conv_thread_started
+    if _conv_thread_started or not db_configured():
+        return
+    _conv_thread_started = True
+
+    def loop():
+        while True:
+            try:
+                conv_cleanup()
+            except Exception as exc:  # noqa: BLE001
+                log.error("Conversation cleanup failed: %s", type(exc).__name__)
+            time.sleep(interval_seconds)
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
