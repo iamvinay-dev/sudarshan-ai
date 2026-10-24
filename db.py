@@ -32,7 +32,8 @@ Environment variables:
     PHONE_HASH_SECRET      long random text; set once and NEVER change it
     PHONE_ENC_SECRET       long random text (40+ chars) for encrypting numbers;
                            set once and NEVER change it
-    CACHE_TTL_HOURS        optional, default 168 (7 days)
+    CACHE_TTL_HOURS        optional, default 8 (cached answers are deleted after this many hours)
+    CONV_RETENTION_HOURS   optional, default 8 (saved chats are deleted after this many hours)
 """
 
 import os
@@ -58,9 +59,9 @@ PHONE_HASH_SECRET = os.environ.get("PHONE_HASH_SECRET", "").strip()
 PHONE_ENC_SECRET = os.environ.get("PHONE_ENC_SECRET", "").strip()
 
 try:
-    CACHE_TTL_HOURS = int(os.environ.get("CACHE_TTL_HOURS", "168"))
+    CACHE_TTL_HOURS = int(os.environ.get("CACHE_TTL_HOURS", "8"))
 except ValueError:
-    CACHE_TTL_HOURS = 168
+    CACHE_TTL_HOURS = 8
 
 
 def db_configured() -> bool:
@@ -304,7 +305,10 @@ def save_problem(feedback_id, pilgrim_id, phone, problem_text):
 # Keyed by the anonymous hash - never the phone number. Rows older than
 # CONV_RETENTION_HOURS are deleted automatically.
 # ---------------------------------------------------------------------------
-CONV_RETENTION_HOURS = 24
+try:
+    CONV_RETENTION_HOURS = int(os.environ.get("CONV_RETENTION_HOURS", "8"))
+except ValueError:
+    CONV_RETENTION_HOURS = 8
 _conv_thread_started = False
 
 
@@ -337,11 +341,16 @@ def conv_save(phone, data) -> bool:
 
 
 def conv_cleanup() -> None:
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=CONV_RETENTION_HOURS)).isoformat()
-    _request("DELETE", "conversations", params={"updated_at": f"lt.{cutoff}"}, prefer="return=minimal")
+    """Delete saved chats and cached answers that are older than their limit (saves storage).
+    Questions in the 'queries' table (used by the admin dashboard) are NOT touched."""
+    now = datetime.now(timezone.utc)
+    chat_cutoff = (now - timedelta(hours=CONV_RETENTION_HOURS)).isoformat()
+    cache_cutoff = (now - timedelta(hours=CACHE_TTL_HOURS)).isoformat()
+    _request("DELETE", "conversations", params={"updated_at": f"lt.{chat_cutoff}"}, prefer="return=minimal")
+    _request("DELETE", "answer_cache", params={"created_at": f"lt.{cache_cutoff}"}, prefer="return=minimal")
 
 
-def start_conv_cleanup_loop(interval_seconds: int = 3600) -> None:
+def start_conv_cleanup_loop(interval_seconds: int = 1800) -> None:
     global _conv_thread_started
     if _conv_thread_started or not db_configured():
         return
