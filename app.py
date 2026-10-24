@@ -17,6 +17,13 @@ Reply order for every message
     8. AI, only if the facts clearly answer the question; otherwise "I don't have this"
        (logged as unanswered) with an offer to register a complaint
 
+Conversation memory (Phase 7)
+    Where each pilgrim is in the chat (complaint step, last 5 exchanges, language) is
+    loaded from Supabase when a message arrives and saved back before the reply is sent.
+    So the bot never forgets a question it just asked - even after a restart, or when
+    Render runs more than one worker. If the database is down, the bot keeps working
+    with its RAM copy.
+
 Languages: English and Telugu are native. Hindi, Kannada, Tamil, Malayalam, Bengali, Gujarati,
 Odia, Punjabi and Urdu are understood by translating the message to English, running the same
 pipeline, and translating the reply back.
@@ -90,13 +97,15 @@ log = logging.getLogger("sudarshan-ai")
 app = Flask(__name__)
 admin.register(app)      # private admin website at /admin (needs SECRET_KEY to switch on)
 
-# Small in-memory stores (reset on restart, NOT a database)
-user_sessions = {}       # { phone: [ {role, content}, ... ] }
+# Working copies in RAM. The real memory is Supabase (table "conversations"):
+# _hydrate() fills these from the database, _persist() saves them back.
+user_sessions = {}       # { phone: [ {role, content}, ... ] }   last 5 exchanges
 last_lang = {}           # { phone: language code used in the last message }
 forced_lang = {}         # { phone: language the pilgrim chose by typing e.g. "Kannada" }
 last_unanswered = {}     # { phone: last question the bot could not answer }
 answer_stats = {}        # { phone: {"n", "last_q", "cat", "topic", "asked"} }  (feedback timing)
-MAX_HISTORY_TURNS = 3
+MAX_HISTORY_TURNS = 5    # exchanges (question + answer) remembered
+AI_HISTORY_CHARS = 400   # each remembered message is shortened to this before it goes to the AI
 MAX_TRACKED_USERS = 5000
 _seen_message_ids = OrderedDict()
 
@@ -115,6 +124,7 @@ def _ensure_background() -> None:
         if db.db_configured():
             db.submit(db.refresh_kb, knowledge_base)
             db.start_kb_refresh_loop(knowledge_base)
+            db.start_conv_cleanup_loop()                 # deletes saved chats older than 24 hours
             db.submit(admin.ensure_bootstrap)
             if not db.PHONE_HASH_SECRET:
                 log.error("PHONE_HASH_SECRET is not set - query logging is OFF.")
@@ -140,6 +150,67 @@ def _already_processed(message_id: str) -> bool:
     while len(_seen_message_ids) > 2000:
         _seen_message_ids.popitem(last=False)
     return False
+
+
+# ---------------------------------------------------------------------------
+# Conversation memory: load from / save to Supabase
+# ---------------------------------------------------------------------------
+def _hydrate(phone: str) -> None:
+    """Load this pilgrim's saved conversation from Supabase into RAM (before replying)."""
+    try:
+        data = db.conv_load(phone)
+    except Exception as exc:  # noqa: BLE001
+        log.error("Could not load conversation: %s", type(exc).__name__)
+        return
+    if not data:        # None = database not readable, {} = new pilgrim: keep the RAM copy as it is
+        return
+    history = [m for m in (data.get("history") or [])
+               if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+               and isinstance(m.get("content"), str)]
+    user_sessions[phone] = history[-(MAX_HISTORY_TURNS * 2):]
+    for store, key in ((last_lang, "lang"), (forced_lang, "forced"), (last_unanswered, "unans")):
+        if data.get(key):
+            store[phone] = data[key]
+        else:
+            store.pop(phone, None)
+    stats = data.get("stats")
+    if isinstance(stats, dict):
+        answer_stats[phone] = stats
+    else:
+        answer_stats.pop(phone, None)
+    complaints.import_state(phone, data.get("flow"))
+
+
+def _persist(phone: str) -> None:
+    """Save this pilgrim's conversation to Supabase (before the reply is sent, so the next
+    message - even on another worker - already sees it). Text is redacted first."""
+    try:
+        history = []
+        for m in user_sessions.get(phone, [])[-(MAX_HISTORY_TURNS * 2):]:
+            content = m["content"]
+            if m["role"] == "user":
+                content = db.redact(content)
+            history.append({"role": m["role"], "content": content[:1500]})
+        stats = dict(answer_stats.get(phone) or {})
+        if stats.get("last_q"):
+            stats["last_q"] = db.redact(stats["last_q"])[:300]
+        data = {
+            "history": history,
+            "lang": last_lang.get(phone),
+            "forced": forced_lang.get(phone),
+            "unans": db.redact(last_unanswered.get(phone, ""))[:300] or None,
+            "stats": stats or None,
+            "flow": complaints.export_state(phone),
+        }
+        db.conv_save(phone, data)
+    except Exception as exc:  # noqa: BLE001
+        log.error("Could not save conversation: %s", type(exc).__name__)
+
+
+def _ai_history(history: list) -> list:
+    """Shorter copy of the remembered chat for the AI (keeps AI cost low)."""
+    return [{"role": m["role"], "content": m["content"][:AI_HISTORY_CHARS]}
+            for m in history[-(MAX_HISTORY_TURNS * 2):]]
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +565,7 @@ def _core(phone, work, original, te, reply_lang):
             return cached + _feedback_suffix(phone, te), _meta("cache", category=category)
 
     # 8) AI
-    reply, why = get_ai_reply(work, history, te)
+    reply, why = get_ai_reply(work, _ai_history(history), te)
     if why == "ok":
         _remember(phone, work, reply)
         _track_answer(phone, work, category)
@@ -593,7 +664,9 @@ def _process_message(message: dict) -> None:
         text = inter.get("button_reply", {}).get("title") or inter.get("list_reply", {}).get("title") or ""
 
     if text is not None:
+        _hydrate(from_number)                       # 1) load where this pilgrim is in the chat
         reply_text, meta = process_text(from_number, text)
+        _persist(from_number)                       # 2) save it BEFORE replying
     else:
         reply_text = NON_TEXT_REPLY_TE if last_lang.get(from_number) == "te" else NON_TEXT_REPLY_EN
 
