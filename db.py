@@ -2,19 +2,24 @@
 """
 db.py
 -----
-Supabase layer for Sudarshan AI (Phase 2 + Phase 3).
+Supabase layer for Sudarshan AI (Phase 2 + 3 + 5).
 
 What this file does:
     1. Pilgrim privacy   - phone number -> HMAC hash -> pilgrim code like '#1001'.
-                           The real number is never written to the database or logs.
+                           The real number is never written to the database or logs
+                           (the ONLY exception: after a pilgrim says "not solved" and
+                           types a problem, the number is saved ENCRYPTED so TTD can
+                           reply. Admins never see it).
     2. Query logging     - every question + reply is saved (text is redacted first),
                            in a background thread so pilgrims never wait for it.
     3. Answer cache      - repeated AI answers are served from memory / Supabase.
     4. Knowledge base    - loaded from Supabase every 5 minutes (falls back to the
                            Python file if Supabase is unreachable).
     5. One-time migration of knowledge_base.py into Supabase.
+    6. Feedback          - "solved / not solved" + rating + problem text.
 
-Talks to Supabase through its REST API using only `requests` (no extra packages).
+Talks to Supabase through its REST API using only `requests` (the `cryptography`
+package is used ONLY to encrypt phone numbers for the contact-back feature).
 EVERY database call is wrapped so that a database problem can never stop the bot
 from answering pilgrims.
 
@@ -22,6 +27,8 @@ Environment variables:
     SUPABASE_URL           e.g. https://abcdxyz.supabase.co
     SUPABASE_SERVICE_KEY   the SECRET key (server only - never share it)
     PHONE_HASH_SECRET      long random text; set once and NEVER change it
+    PHONE_ENC_SECRET       long random text (40+ chars) for encrypting numbers;
+                           set once and NEVER change it
     CACHE_TTL_HOURS        optional, default 168 (7 days)
 """
 
@@ -30,6 +37,7 @@ import re
 import json
 import time
 import hmac
+import base64
 import hashlib
 import logging
 import threading
@@ -44,6 +52,7 @@ log = logging.getLogger("sudarshan-ai.db")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
 PHONE_HASH_SECRET = os.environ.get("PHONE_HASH_SECRET", "").strip()
+PHONE_ENC_SECRET = os.environ.get("PHONE_ENC_SECRET", "").strip()
 
 try:
     CACHE_TTL_HOURS = int(os.environ.get("CACHE_TTL_HOURS", "168"))
@@ -165,6 +174,34 @@ def normalize_key(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Encrypted phone storage (ONLY used for the "not solved" contact-back feature)
+# ---------------------------------------------------------------------------
+def contact_enabled() -> bool:
+    """True when PHONE_ENC_SECRET is set and the cryptography package is installed."""
+    if len(PHONE_ENC_SECRET) < 20:
+        return False
+    try:
+        import cryptography.fernet  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    key = base64.urlsafe_b64encode(hashlib.sha256(PHONE_ENC_SECRET.encode()).digest())
+    return Fernet(key)
+
+
+def encrypt_phone(phone: str) -> str:
+    return _fernet().encrypt(re.sub(r"\D", "", str(phone)).encode()).decode()
+
+
+def decrypt_phone(token: str) -> str:
+    return _fernet().decrypt(str(token).encode()).decode()
+
+
+# ---------------------------------------------------------------------------
 # Query logging (runs in the background)
 # ---------------------------------------------------------------------------
 def log_interaction(phone, text, reply, meta, wa_message_id=None, response_ms=None):
@@ -191,10 +228,13 @@ def log_interaction(phone, text, reply, meta, wa_message_id=None, response_ms=No
         "source": (meta or {}).get("source", "unknown"),
         "category": (meta or {}).get("category"),
         "matched_question": (meta or {}).get("matched_question"),
+        "topic": ((meta or {}).get("topic") or None),
         "language": lang,
         "response_ms": response_ms,
         "answered": bool((meta or {}).get("answered", True)),
     }
+    if row["topic"]:
+        row["topic"] = row["topic"][:200]
     resp = _request(
         "POST", "queries", params={"on_conflict": "wa_message_id"}, body=row,
         prefer="return=minimal,resolution=ignore-duplicates",
@@ -202,6 +242,58 @@ def log_interaction(phone, text, reply, meta, wa_message_id=None, response_ms=No
     if resp is not None:
         log.info("Query logged for %s (%s)", pilgrim_code, row["source"])
     return pilgrim_code
+
+
+# ---------------------------------------------------------------------------
+# Feedback ("solved?" + rating + problem text)
+# ---------------------------------------------------------------------------
+def _pilgrim_id(phone, lang="en"):
+    h = phone_hash(phone)
+    rows = _json(_request("GET", "pilgrims",
+                          params={"select": "id", "phone_hash": f"eq.{h}", "limit": "1"}, timeout=4))
+    if rows:
+        return rows[0]["id"]
+    rows = _json(_request("POST", "rpc/get_or_create_pilgrim", body={"p_hash": h, "p_lang": lang}))
+    return rows[0].get("out_id") if rows else None
+
+
+def save_feedback(phone, solved, rating, last_question, topic, category, lang="en"):
+    """Save one feedback answer. Returns (feedback_id, pilgrim_id) or (None, None)."""
+    if not logging_enabled():
+        return None, None
+    pid = _pilgrim_id(phone, lang)
+    if pid is None:
+        return None, None
+    row = {"pilgrim_id": pid, "solved": bool(solved), "rating": rating,
+           "last_question": redact(last_question or "")[:300],
+           "topic": (topic or None), "category": (category or None), "status": "closed"}
+    rows = _json(_request("POST", "feedback", body=row, prefer="return=representation"))
+    if not rows:
+        return None, pid
+    return rows[0].get("id"), pid
+
+
+def save_problem(feedback_id, pilgrim_id, phone, problem_text):
+    """Pilgrim said 'not solved' and typed the problem. Save the problem text and
+    (if PHONE_ENC_SECRET is set) the ENCRYPTED number so TTD can reply.
+    Returns (problem_saved, number_saved)."""
+    if not feedback_id:
+        return False, False
+    now = datetime.now(timezone.utc).isoformat()
+    ok = _request("PATCH", "feedback", params={"id": f"eq.{feedback_id}"}, prefer="return=minimal",
+                  body={"problem_text": redact(problem_text)[:1000], "status": "open",
+                        "last_pilgrim_msg_at": now}) is not None
+    stored = False
+    if ok and pilgrim_id and contact_enabled():
+        try:
+            token = encrypt_phone(phone)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Could not encrypt number: %s", type(exc).__name__)
+            token = None
+        if token:
+            stored = _request("PATCH", "pilgrims", params={"id": f"eq.{pilgrim_id}"},
+                              body={"phone_enc": token}, prefer="return=minimal") is not None
+    return ok, stored
 
 
 # ---------------------------------------------------------------------------
