@@ -56,6 +56,27 @@ SAFE_FALLBACK_TE = (
     "మెనూ కోసం *0* పంపండి."
 )
 
+NOANSWER_REPLY_EN = (
+    "🙏 Sorry, I don't have this exact information.\n\n"
+    "Please check https://tirumala.org or contact the TTD help desk / Call Centre.\n\n"
+    "If you want TTD to look into it, reply *C* to register a complaint or request."
+)
+NOANSWER_REPLY_TE = (
+    "🙏 క్షమించండి, ఈ ఖచ్చితమైన సమాచారం నా వద్ద లేదు.\n\n"
+    "దయచేసి https://tirumala.org చూడండి లేదా TTD హెల్ప్ డెస్క్ / కాల్ సెంటర్‌ను సంప్రదించండి.\n\n"
+    "TTD పరిశీలించాలంటే, ఫిర్యాదు లేదా అభ్యర్థన నమోదు చేయడానికి *C* పంపండి."
+)
+CLARIFY_REPLY_EN = (
+    "🙏 Please tell me a little more so I can help.\n\n"
+    "For example: _darshan timings_, _free stay_, _dress code_.\n"
+    "Or reply *0* for the menu."
+)
+CLARIFY_REPLY_TE = (
+    "🙏 నేను సహాయం చేయడానికి దయచేసి కొంచెం వివరంగా చెప్పండి.\n\n"
+    "ఉదాహరణ: _దర్శనం సమయాలు_, _ఉచిత వసతి_, _దుస్తుల నియమాలు_.\n"
+    "లేదా మెనూ కోసం *0* పంపండి."
+)
+
 SMALLTALK_REPLY_EN = (
     "🙏 You're most welcome! Om Namo Venkatesaya.\n\n"
     "Reply *0* anytime for the menu."
@@ -190,7 +211,7 @@ _PILGRIM_KEYWORDS = re.compile(
     r"\b(?:tirumala|tirupati|ttd|darshan|temple|venkates|balaji|srinivasa|govinda|"
     r"laddu|prasad|seva|ticket|token|accommodation|room|stay|bus|train|railway|"
     r"alipiri|mettu|footpath|dress|tonsure|annadanam|pilgrim|padmavathi|"
-    r"brahmotsavam|vaikunta|hundi|locker|queue|crowd)"
+    r"brahmotsavam|vaikunta|hundi|locker|queue|crowd|ssd|slotted|abhishekam|suprabhatam)"
 )
 _PILGRIM_KEYWORDS_TELUGU = [
     "తిరుమల", "తిరుపతి", "దర్శన", "స్వామి", "లడ్డు", "టికెట్", "వసతి",
@@ -263,7 +284,8 @@ _LEAK_REGEX = re.compile(
 
 
 def sanitize_ai_reply(reply: str, telugu: bool = False):
-    """Returns (safe_text, reason). reason: "ok", "offtopic", "identity", "leak"."""
+    """Returns (safe_text, reason).
+    reason: "ok", "offtopic", "identity", "noanswer", "short", "leak"."""
     text = (reply or "").strip()
     head = text[:40].upper()
 
@@ -271,6 +293,34 @@ def sanitize_ai_reply(reply: str, telugu: bool = False):
         return (OFFTOPIC_REPLY_TE if telugu else OFFTOPIC_REPLY_EN), "offtopic"
     if head.startswith("IDENTITY"):
         return (IDENTITY_REPLY_TE if telugu else IDENTITY_REPLY_EN), "identity"
-    if not text or _LEAK_REGEX.search(text):
+    if head.startswith("NO_ANSWER"):
+        return (NOANSWER_REPLY_TE if telugu else NOANSWER_REPLY_EN), "noanswer"
+    # An almost empty reply (for example just "#") is never sent to a pilgrim.
+    if sum(1 for ch in text if ch.isalpha()) < 12:
+        return (NOANSWER_REPLY_TE if telugu else NOANSWER_REPLY_EN), "short"
+    if _LEAK_REGEX.search(text):
         return (SAFE_FALLBACK_TE if telugu else SAFE_FALLBACK_EN), "leak"
     return text[:MAX_REPLY_CHARS], "ok"
+
+
+_NUM = re.compile(r"\d+(?::\d+)?")
+
+
+def numbers_supported(reply: str, facts: str, user_text: str = "") -> bool:
+    """True when every number with 2+ digits (prices, times, dates) in the reply also
+    appears in the facts the AI was given (or in the pilgrim's own message)."""
+    known = set(_NUM.findall((facts or "") + " " + (user_text or "")))
+    for n in _NUM.findall(reply or ""):
+        if len(n) < 2 and ":" not in n:
+            continue
+        if n not in known:
+            return False
+    return True
+
+
+def is_too_vague(text: str, has_domain_match: bool = False) -> bool:
+    """One or two unclear words such as "what" or "hello there"."""
+    if has_domain_match or has_pilgrim_keyword(text) or (text or "").strip().isdigit():
+        return False
+    words = re.findall(r"[\w\u0c00-\u0c7f]+", normalize(text))
+    return len(words) <= 2
