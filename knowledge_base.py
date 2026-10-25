@@ -456,6 +456,319 @@ KNOWLEDGE_BASE = {
     },
 }
 
+# ==================================================================
+# CONTENT UPDATE (menu answers 1, 2, 3, 4, 6, 7 + new Q&As)
+# Written from TTD information given by the project owner and checked against
+# official TTD announcements. Timings and quotas change often, so every answer
+# points pilgrims to https://tirumala.org for the latest.
+# ==================================================================
+
+def _upsert_qa(cat, question, answer):
+    """Replace the answer if the question already exists, otherwise add it."""
+    qas = KNOWLEDGE_BASE[cat]["qas"]
+    for qa in qas:
+        if qa["q"].strip().lower() == question.strip().lower():
+            qa["a"] = answer
+            return
+    qas.append({"q": question, "a": answer})
+
+
+def _rename_qa(cat, old_q, new_q):
+    for qa in KNOWLEDGE_BASE[cat]["qas"]:
+        if qa["q"] == old_q:
+            qa["q"] = new_q
+            return
+
+
+_rename_qa("annadanam", "How many laddus do I get with a ₹300 Special Entry Darshan ticket?",
+           "How many laddus do I get with the ticket?")
+
+
+KNOWLEDGE_BASE["darshan"]["summary"] = (
+    "*🎟️ Darshan & Tickets*\n\n"
+    "You can have darshan of Sri Venkateswara Swamy in these ways:\n\n"
+    "*1️⃣ Free Darshan (Sarva Darshan)*\n"
+    "• Free for everyone, no ticket needed. Waiting time depends on the crowd.\n\n"
+    "*2️⃣ SSD Darshan (Slotted Sarva Darshan)*\n"
+    "• A free token with a time slot.\n"
+    "• SSD tokens are given in Tirupati at *Bhudevi Complex, Vishnu Nivasam and Srinivasam*, "
+    "at the times announced by TTD.\n"
+    "• Report at Tirumala at the time slot printed on your token.\n\n"
+    "*3️⃣ ₹300 Special Entry Darshan*\n"
+    "• Book online only, on the official TTD website or app (https://tirumala.org).\n\n"
+    "*⭐ Srivani Darshan (VIP Break)*\n"
+    "• ₹10,000 Srivani Trust donation + ₹500 ticket per person.\n"
+    "• Only a limited number of tickets, given online and at fixed times at Tirupati Airport "
+    "and Tirumala.\n\n"
+    "⚠️ Book only on the official TTD website or app. Timings and quotas change, so check "
+    "https://tirumala.org.\n"
+)
+KNOWLEDGE_BASE["darshan"]["summary_te"] = (
+    "*🎟️ దర్శనం & టికెట్లు*\n\n"
+    "శ్రీవారి దర్శనం ఈ విధాలుగా చేసుకోవచ్చు:\n\n"
+    "*1️⃣ ఉచిత దర్శనం (సర్వ దర్శనం)*\n"
+    "• అందరికీ ఉచితం, టికెట్ అవసరం లేదు. వేచి ఉండే సమయం రద్దీపై ఆధారపడి ఉంటుంది.\n\n"
+    "*2️⃣ SSD దర్శనం (స్లాటెడ్ సర్వ దర్శనం)*\n"
+    "• సమయం కేటాయించిన ఉచిత టోకెన్.\n"
+    "• SSD టోకెన్లు తిరుపతిలోని *భూదేవి కాంప్లెక్స్, విష్ణు నివాసం, శ్రీనివాసం* వద్ద "
+    "TTD ప్రకటించిన సమయాల్లో ఇస్తారు.\n"
+    "• టోకెన్‌పై ఉన్న సమయానికి తిరుమలలో రిపోర్ట్ చేయాలి.\n\n"
+    "*3️⃣ ₹300 ప్రత్యేక ప్రవేశ దర్శనం*\n"
+    "• అధికారిక TTD వెబ్‌సైట్ లేదా యాప్‌లో (https://tirumala.org) ఆన్‌లైన్‌లో మాత్రమే బుక్ చేసుకోవాలి.\n\n"
+    "*⭐ శ్రీవాణి దర్శనం (VIP బ్రేక్)*\n"
+    "• ఒక్కొక్కరికి ₹10,000 శ్రీవాణి ట్రస్ట్ విరాళం + ₹500 టికెట్.\n"
+    "• పరిమిత సంఖ్యలో మాత్రమే: ఆన్‌లైన్‌లో, తిరుపతి విమానాశ్రయం మరియు తిరుమలలో నిర్ణీత సమయాల్లో.\n\n"
+    "⚠️ అధికారిక TTD వెబ్‌సైట్ / యాప్‌లో మాత్రమే బుక్ చేయండి. సమయాలు, కోటాలు మారుతుంటాయి, "
+    "https://tirumala.org చూడండి.\n"
+)
+
+KNOWLEDGE_BASE["accommodation"]["summary"] = (
+    "*🏨 Accommodation*\n\n"
+    "TTD provides stay in its own complexes (choultries):\n\n"
+    "*In Tirupati*\n"
+    "• *Vishnu Nivasam* – opposite Tirupati Railway Station\n"
+    "• *Srinivasam* – opposite Tirupati bus stand (RTC)\n"
+    "• *Bhudevi Complex* – near Alipiri\n\n"
+    "*In Tirumala (on the hills)*\n"
+    "• *Madhava Nilayam* – opposite Tirumala bus stand\n\n"
+    "• Rest halls, lockers and bathing facilities are available (subject to availability).\n"
+    "• Rooms: book on the official TTD website or app, or at the current-booking counters "
+    "when available.\n"
+)
+KNOWLEDGE_BASE["accommodation"]["summary_te"] = (
+    "*🏨 వసతి*\n\n"
+    "TTD తన సొంత సముదాయాల్లో (చౌల్ట్రీలు) వసతి కల్పిస్తుంది:\n\n"
+    "*తిరుపతిలో*\n"
+    "• *విష్ణు నివాసం* – తిరుపతి రైల్వే స్టేషన్ ఎదురుగా\n"
+    "• *శ్రీనివాసం* – తిరుపతి బస్ స్టాండ్ (RTC) ఎదురుగా\n"
+    "• *భూదేవి కాంప్లెక్స్* – అలిపిరి సమీపంలో\n\n"
+    "*తిరుమలలో (కొండపై)*\n"
+    "• *మాధవ నిలయం* – తిరుమల బస్ స్టాండ్ ఎదురుగా\n\n"
+    "• విశ్రాంతి హాళ్లు, లాకర్లు, స్నాన సౌకర్యాలు అందుబాటులో ఉంటాయి (లభ్యతను బట్టి).\n"
+    "• గదులు: అధికారిక TTD వెబ్‌సైట్ / యాప్‌లో బుక్ చేయండి, లేదా అందుబాటులో ఉన్నప్పుడు "
+    "కరెంట్ బుకింగ్ కౌంటర్ల వద్ద.\n"
+)
+
+KNOWLEDGE_BASE["transport"]["summary"] = (
+    "*🚌 Transportation*\n\n"
+    "*In Tirupati*\n"
+    "• TTD runs *free buses* from Tirupati Railway Station to the *Srivari Mettu* / Alipiri footpath.\n"
+    "• APSRTC buses run from Tirupati to Tirumala frequently. Taxis and autos are also available.\n\n"
+    "*Walking routes to Tirumala*\n"
+    "• *Srivari Mettu* – about 2.4 km (shorter)\n"
+    "• *Alipiri* – about 11 km (traditional route)\n\n"
+    "*In Tirumala*\n"
+    "• TTD runs *free buses* (Dharma Ratham) between the temple, cottages, choultries and "
+    "sightseeing points.\n\n"
+    "*Own vehicle:* allowed after the Alipiri check post.\n"
+)
+KNOWLEDGE_BASE["transport"]["summary_te"] = (
+    "*🚌 రవాణా*\n\n"
+    "*తిరుపతిలో*\n"
+    "• రైల్వే స్టేషన్ నుండి *శ్రీవారి మెట్టు* / అలిపిరి నడక మార్గానికి TTD *ఉచిత బస్సులు* నడుపుతుంది.\n"
+    "• తిరుపతి నుండి తిరుమలకు APSRTC బస్సులు తరచుగా ఉంటాయి. టాక్సీలు, ఆటోలు కూడా దొరుకుతాయి.\n\n"
+    "*తిరుమలకు నడక మార్గాలు*\n"
+    "• *శ్రీవారి మెట్టు* – సుమారు 2.4 కి.మీ (తక్కువ దూరం)\n"
+    "• *అలిపిరి* – సుమారు 11 కి.మీ (సంప్రదాయ మార్గం)\n\n"
+    "*తిరుమలలో*\n"
+    "• ఆలయం, కాటేజీలు, చౌల్ట్రీలు, దర్శనీయ స్థలాల మధ్య TTD *ఉచిత బస్సులు* (ధర్మ రథం) నడుపుతుంది.\n\n"
+    "*సొంత వాహనం:* అలిపిరి చెక్‌పోస్ట్ తనిఖీ తర్వాత అనుమతిస్తారు.\n"
+)
+
+KNOWLEDGE_BASE["history"]["summary"] = (
+    "*📜 Temple History*\n\n"
+    "• Sri Venkateswara Swamy (Balaji, Srinivasa, Govinda) is Lord Vishnu, who came to Earth "
+    "in Kali Yuga to protect devotees.\n"
+    "• The temple stands on the *Seven Hills* of Tirumala. The hills are believed to be the "
+    "form of Adisesha.\n"
+    "• Many dynasties – Pallavas, Cholas, Pandyas and the Vijayanagara kings, including "
+    "Sri Krishnadevaraya – served the temple over the centuries.\n"
+    "• Saint Annamacharya composed more than 32,000 songs on the Lord. Sri Ramanujacharya "
+    "helped organise the temple's worship traditions.\n"
+    "• It is built in the Dravidian style, with the golden *Ananda Nilayam Vimanam* over the sanctum.\n"
+    "• Devotees offer their hair as a sign of surrender and chant \"Govinda!\".\n"
+    "• It is one of the most visited temples in the world.\n"
+)
+KNOWLEDGE_BASE["history"]["summary_te"] = (
+    "*📜 ఆలయ చరిత్ర*\n\n"
+    "• శ్రీ వేంకటేశ్వర స్వామి (బాలాజీ, శ్రీనివాసుడు, గోవిందుడు) కలియుగంలో భక్తులను రక్షించడానికి "
+    "భూమిపై వెలసిన శ్రీ మహావిష్ణువు.\n"
+    "• ఆలయం తిరుమలలోని *సప్తగిరులపై* ఉంది. ఈ కొండలు ఆదిశేషుని రూపంగా భావిస్తారు.\n"
+    "• పల్లవులు, చోళులు, పాండ్యులు, విజయనగర రాజులు (శ్రీ కృష్ణదేవరాయలు సహా) శతాబ్దాలుగా "
+    "ఆలయానికి సేవ చేశారు.\n"
+    "• అన్నమయ్య 32,000కు పైగా సంకీర్తనలు స్వామివారిపై రచించారు. శ్రీ రామానుజాచార్యులు "
+    "ఆలయ ఆరాధనా సంప్రదాయాలను క్రమబద్ధం చేయడంలో తోడ్పడ్డారు.\n"
+    "• ద్రావిడ శైలిలో నిర్మితమైన ఈ ఆలయంలో గర్భగుడిపై బంగారు *ఆనంద నిలయం విమానం* ఉంది.\n"
+    "• భక్తులు శరణాగతికి గుర్తుగా తలనీలాలు సమర్పించి \"గోవిందా!\" అని స్మరిస్తారు.\n"
+    "• ప్రపంచంలో అత్యధికంగా సందర్శించే ఆలయాల్లో ఇది ఒకటి.\n"
+)
+
+KNOWLEDGE_BASE["annadanam"]["summary"] = (
+    "*🍛 Annadanam & Laddu*\n\n"
+    "*🍛 Free meals (Anna Prasadam)*\n"
+    "• Free for all pilgrims.\n"
+    "• *In Tirumala:* the main centre is the *Matrusri Tarigonda Vengamamba Anna Prasadam "
+    "Complex*. Free meals are also served at *Madhava Nilayam*.\n"
+    "• *In Tirupati:* at *Vishnu Nivasam* and *Srinivasam*.\n"
+    "• Timings change, so check https://tirumala.org.\n\n"
+    "*🍬 Laddu*\n"
+    "• Everyone who has darshan – free darshan, SSD token or a ticket – gets *one free laddu*.\n"
+    "• Collect it at the laddu counter after darshan with your ticket or token.\n"
+    "• Extra laddus can be bought at the counters.\n"
+)
+KNOWLEDGE_BASE["annadanam"]["summary_te"] = (
+    "*🍛 అన్నదానం & లడ్డు*\n\n"
+    "*🍛 ఉచిత భోజనం (అన్న ప్రసాదం)*\n"
+    "• యాత్రికులందరికీ ఉచితం.\n"
+    "• *తిరుమలలో:* ప్రధాన కేంద్రం *మాతృశ్రీ తరిగొండ వెంగమాంబ అన్న ప్రసాద సముదాయం*. "
+    "*మాధవ నిలయం* వద్ద కూడా ఉచిత భోజనం ఉంది.\n"
+    "• *తిరుపతిలో:* *విష్ణు నివాసం*, *శ్రీనివాసం* వద్ద.\n"
+    "• సమయాలు మారుతుంటాయి, https://tirumala.org చూడండి.\n\n"
+    "*🍬 లడ్డు*\n"
+    "• దర్శనం చేసుకున్న ప్రతి ఒక్కరికి (ఉచిత దర్శనం, SSD టోకెన్ లేదా టికెట్) *ఒక లడ్డు ఉచితం*.\n"
+    "• దర్శనం తర్వాత టికెట్ / టోకెన్‌తో లడ్డు కౌంటర్ వద్ద తీసుకోండి.\n"
+    "• అదనపు లడ్డూలను కౌంటర్ల వద్ద కొనుగోలు చేయవచ్చు.\n"
+)
+
+KNOWLEDGE_BASE["help"]["summary"] = (
+    "*📞 Help & Contact Information*\n\n"
+    "• *TTD Call Centre (24x7, toll-free):* 155257\n"
+    "• *Toll-free:* 1800 425 4141\n"
+    "• *Helpline:* 0877-2233333 / 0877-2277777\n"
+    "• *Website & app:* https://tirumala.org  |  app name: TTDevasthanams\n"
+    "• *Help desks* at Tirupati, Tirumala, and the railway and bus stations.\n"
+    "• Lost child, lost belongings or emergency: go to the nearest TTD security / police help desk.\n"
+    "• ⚠️ Beware of fake websites and agents. Book only on the official website or app, and "
+    "report fraud on 155257.\n\n"
+    "To register a complaint with TTD, reply *C*.\n"
+)
+KNOWLEDGE_BASE["help"]["summary_te"] = (
+    "*📞 సహాయం & సంప్రదింపు వివరాలు*\n\n"
+    "• *TTD కాల్ సెంటర్ (24x7, టోల్-ఫ్రీ):* 155257\n"
+    "• *టోల్-ఫ్రీ:* 1800 425 4141\n"
+    "• *హెల్ప్‌లైన్:* 0877-2233333 / 0877-2277777\n"
+    "• *వెబ్‌సైట్ & యాప్:* https://tirumala.org  |  యాప్: TTDevasthanams\n"
+    "• తిరుపతి, తిరుమల, రైల్వే మరియు బస్ స్టేషన్లలో *హెల్ప్ డెస్క్‌లు*.\n"
+    "• తప్పిపోయిన పిల్లలు, వస్తువులు లేదా అత్యవసరం: సమీప TTD సెక్యూరిటీ / పోలీస్ హెల్ప్ డెస్క్‌కు వెళ్లండి.\n"
+    "• ⚠️ నకిలీ వెబ్‌సైట్లు, ఏజెంట్లతో జాగ్రత్త. అధికారిక వెబ్‌సైట్ / యాప్‌లోనే బుక్ చేయండి, "
+    "మోసాన్ని 155257కు తెలియజేయండి.\n\n"
+    "TTDకి ఫిర్యాదు నమోదు చేయడానికి *C* పంపండి.\n"
+)
+
+# ---------------- Darshan Q&As ----------------
+_upsert_qa("darshan", "What are the different types of darshan?",
+    "There are three main ways to have darshan:\n"
+    "1. Free Darshan (Sarva Darshan) – free for everyone, no ticket.\n"
+    "2. SSD Darshan (Slotted Sarva Darshan) – a free token with a time slot. SSD tokens are given at "
+    "Bhudevi Complex, Vishnu Nivasam and Srinivasam in Tirupati at the times TTD announces.\n"
+    "3. ₹300 Special Entry Darshan – book online on the official TTD website or app.\n"
+    "There is also Srivani (VIP Break) Darshan for a ₹10,000 Srivani Trust donation plus a ₹500 ticket. "
+    "Senior citizen and differently abled devotees have special arrangements. Check https://tirumala.org for the latest.")
+_upsert_qa("darshan", "What is the meaning of SSD? What is SSD full form?",
+    "SSD means Slotted Sarva Darshan. It is a free darshan: you collect an SSD token that gives you a time "
+    "slot, and you report at Tirumala at that time instead of waiting in a long queue. SSD tokens are given in "
+    "Tirupati at Bhudevi Complex, Vishnu Nivasam and Srinivasam. The token timings and the number of tokens change, "
+    "so check https://tirumala.org.")
+_upsert_qa("darshan", "Where can I get SSD tokens? Where are SSD tokens given?",
+    "SSD tokens are given in Tirupati at Bhudevi Complex, Vishnu Nivasam (opposite the railway station) and "
+    "Srinivasam (opposite the bus stand), at the times announced by TTD. Only a limited number of tokens are "
+    "given, so check https://tirumala.org for the latest timings.")
+_upsert_qa("darshan", "How can I reach Tirumala after taking SSD token?",
+    "After taking your SSD token in Tirupati, go up to Tirumala by APSRTC bus, taxi or your own vehicle, or walk "
+    "through Srivari Mettu (about 2.4 km) or Alipiri (about 11 km). Reach Tirumala in time and report at the "
+    "darshan entry at the time slot printed on your token. Carry the token and your original photo ID. If you "
+    "are unsure where to report, ask any TTD staff or a help desk at Tirumala.")
+_upsert_qa("darshan", "What should I do after getting SSD token? When should I report at Tirumala?",
+    "Report at Tirumala at the time slot printed on your SSD token. Reach in good time, because entry after your "
+    "slot depends on TTD's policy. Carry the token and your original photo ID. After darshan you get one free laddu.")
+_upsert_qa("darshan", "How do I book a darshan ticket?",
+    "Book on the official TTD website or app only (https://tirumala.org): register or log in, choose the date "
+    "and slot, add the pilgrims' details and pay online.\n"
+    "• ₹300 Special Entry Darshan: online booking only, on dates announced by TTD.\n"
+    "• SSD tokens: free, given at Bhudevi Complex, Vishnu Nivasam and Srinivasam in Tirupati.\n"
+    "• Srivani: ₹10,000 donation + ₹500 ticket, online and at fixed times at Tirupati Airport and Tirumala.\n"
+    "Do not book through agents or unknown websites.")
+_upsert_qa("darshan", "What is Special Entry Darshan?",
+    "Special Entry Darshan costs ₹300 per person. Book it online only, on the official TTD website or app "
+    "(https://tirumala.org), subject to slot availability. Release dates are announced by TTD, so check the "
+    "website or app for the latest. Do not book through agents or unknown websites.")
+_upsert_qa("darshan", "What is Srivani darshan ticket? How much does Srivani ticket cost?",
+    "Srivani Darshan (VIP Break Darshan) needs a ₹10,000 donation to the Srivani Trust plus a ₹500 darshan ticket "
+    "for each person. Only a limited number of tickets are given, online and at fixed times at Tirupati Airport "
+    "and Tirumala. TTD changes the quota and timings often, so check https://tirumala.org.")
+_upsert_qa("darshan", "Where can I get Srivani ticket? Srivani darshan counter",
+    "Srivani tickets are available online on the official TTD website or app, at the Srivani counter at Tirupati "
+    "Airport, and at Tirumala at fixed times. Only a limited number of tokens are given each day, so check "
+    "https://tirumala.org for the current quota and timings.")
+
+_upsert_qa("darshan", "Is VIP Darshan available?",
+    "VIP Darshan follows TTD's official eligibility rules. The option open to the public is Srivani (VIP Break) "
+    "Darshan: a ₹10,000 Srivani Trust donation plus a ₹500 ticket per person, with a limited number of tickets "
+    "online and at fixed times at Tirupati Airport and Tirumala. Check https://tirumala.org for the latest.")
+
+# ---------------- Accommodation Q&As ----------------
+_upsert_qa("accommodation", "Does TTD provide free accommodation?",
+    "Yes. TTD provides rest halls, dormitories and rooms in its own complexes (choultries): Vishnu Nivasam, "
+    "Srinivasam and Bhudevi Complex in Tirupati, and Madhava Nilayam at Tirumala. Availability depends on the "
+    "rush; rooms can be booked on the official TTD website or app.")
+_upsert_qa("accommodation", "Which TTD choultries and accommodation complexes are in Tirupati and Tirumala?",
+    "In Tirupati: Vishnu Nivasam (opposite the railway station), Srinivasam (opposite the bus stand) and "
+    "Bhudevi Complex (near Alipiri). In Tirumala: Madhava Nilayam (opposite the Tirumala bus stand).")
+_upsert_qa("accommodation", "Where is Srinivasam?",
+    "Srinivasam is a TTD pilgrim complex in Tirupati, opposite the Tirupati RTC bus stand. It has rest halls, "
+    "lockers and bathing facilities, gives out SSD tokens, and serves free Anna Prasadam.")
+_upsert_qa("accommodation", "What is Bhudevi Complex? Where is Bhudevi Complex located?",
+    "Bhudevi Complex is a TTD pilgrim complex in Tirupati, near Alipiri. It is one of the places where SSD "
+    "tokens are given.")
+
+# ---------------- Transport Q&As ----------------
+_upsert_qa("transport", "How to reach Srivari Mettu footpath?",
+    "TTD runs free buses from Tirupati Railway Station to the Srivari Mettu footpath. From there you can walk "
+    "about 2.4 km up to Tirumala. (Alipiri, about 11 km, is the other walking route.)")
+
+# ---------------- Annadanam & laddu Q&As ----------------
+_upsert_qa("annadanam", "Where can I get free food? Location of free food",
+    "Free food (Anna Prasadam) is served at these places:\n"
+    "• Tirumala: Matrusri Tarigonda Vengamamba Anna Prasadam Complex (main centre) and Madhava Nilayam.\n"
+    "• Tirupati: Vishnu Nivasam (opposite the railway station) and Srinivasam (opposite the bus stand).\n"
+    "It is free for all pilgrims. Timings change, so check https://tirumala.org.")
+_upsert_qa("annadanam", "Is Anna Prasadam available in Tirupati?",
+    "Yes. Free meals are served at Vishnu Nivasam (opposite Tirupati Railway Station) and Srinivasam "
+    "(opposite the Tirupati bus stand).")
+_upsert_qa("annadanam", "Where is Anna Prasadam served?",
+    "In Tirumala, free Anna Prasadam is served at the Matrusri Tarigonda Vengamamba Anna Prasadam Complex "
+    "(the main centre) and at Madhava Nilayam. In Tirupati it is served at Vishnu Nivasam and Srinivasam.")
+_upsert_qa("annadanam", "Do I get a free laddu with free darshan or SSD token?",
+    "Yes. Every pilgrim who has darshan – free darshan, SSD token or a ticket – gets one free laddu. Collect it "
+    "at the laddu counter after darshan with your ticket or token. Extra laddus can be bought.")
+
+_upsert_qa("annadanam", "Is Anna Prasadam free?",
+    "Yes. Anna Prasadam is completely free for all pilgrims, irrespective of age, religion or nationality. "
+    "In Tirumala it is served at the Matrusri Tarigonda Vengamamba Anna Prasadam Complex (main centre) and at "
+    "Madhava Nilayam. In Tirupati it is served at Vishnu Nivasam and Srinivasam.")
+_upsert_qa("annadanam", "What is Anna Prasadam?",
+    "Anna Prasadam is the free meal service of TTD for all pilgrims. In Tirumala it is served at the Matrusri "
+    "Tarigonda Vengamamba Anna Prasadam Complex and at Madhava Nilayam. In Tirupati it is served at Vishnu "
+    "Nivasam and Srinivasam. Timings change, so check https://tirumala.org.")
+
+# ---------------- Help & contact Q&As ----------------
+_upsert_qa("help", "What is the TTD helpline number?",
+    "TTD Call Centre (24x7, toll-free): 155257. Toll-free: 1800 425 4141. Helpline: 0877-2233333 or "
+    "0877-2277777. Website and app: https://tirumala.org (app name: TTDevasthanams).")
+_upsert_qa("help", "How can I contact the TTD Call Centre?",
+    "Call the TTD Call Centre toll-free on 155257 (24x7), or 1800 425 4141. You can also call 0877-2233333 or "
+    "0877-2277777, or visit https://tirumala.org.")
+_upsert_qa("help", "Does TTD have a customer care number?",
+    "Yes. TTD Call Centre (24x7, toll-free): 155257. Toll-free: 1800 425 4141. Helpline: 0877-2233333 / 0877-2277777.")
+_upsert_qa("help", "How can I contact TTD?",
+    "Call the TTD Call Centre on 155257 (toll-free, 24x7) or 1800 425 4141, call 0877-2233333 / 0877-2277777, "
+    "visit https://tirumala.org, or go to any TTD help desk or information centre in Tirupati or Tirumala.")
+_upsert_qa("help", "How can I report a fraud or a fake website?",
+    "Book only on the official TTD website or app (https://tirumala.org). If someone asks for money for darshan "
+    "or rooms, or a website looks fake, report it on the TTD toll-free number 155257. You can also reply *C* here "
+    "to register a complaint.")
+
+
 # ------------------------------------------------------------------
 # Menu configuration — mirrors the original WhatsApp numbered menu
 # ------------------------------------------------------------------
@@ -611,9 +924,8 @@ KEYWORD_SYNONYMS = {
     },
     "special_entry": {
         "en": ["special entry", "300 rupees ticket", "rs 300 ticket",
-               "paid darshan", "ssd ticket", "300 ticket"],
-        "te": ["స్పెషల్ ఎంట్రీ", "300 రూపాయల టికెట్", "చెల్లింపు దర్శనం",
-               "SSD టికెట్"],
+               "paid darshan", "300 ticket"],
+        "te": ["స్పెషల్ ఎంట్రీ", "300 రూపాయల టికెట్", "చెల్లింపు దర్శనం"],
     },
     "divya_darshan": {
         "en": ["divya darshan", "footpath darshan", "walking darshan"],
@@ -636,9 +948,18 @@ KEYWORD_SYNONYMS = {
                "కోటా", "ఎలా బుక్ చేయాలి"],
     },
     "token": {
-        "en": ["token", "ssd token", "token release", "token timing",
+        "en": ["token", "ssd", "ssd token", "ssd ticket", "token release", "token timing",
                "tokens open", "token date"],
         "te": ["టోకెన్", "SSD టోకెన్", "టోకెన్ ఎప్పుడు"],
+    },
+    "ssd_meaning": {
+        "en": ["what is ssd", "ssd meaning", "ssd means", "meaning of ssd", "ssd full form",
+               "full form of ssd", "what does ssd mean", "ssd mean"],
+        "te": ["SSD అంటే ఏమిటి", "ఎస్ఎస్డి అంటే"],
+    },
+    "srivani": {
+        "en": ["srivani", "sri vani", "vip break darshan", "break darshan"],
+        "te": ["శ్రీవాణి", "వీఐపీ బ్రేక్ దర్శనం"],
     },
     "cancellation": {
         "en": ["cancel", "cancellation", "refund", "reschedule",
