@@ -1,244 +1,465 @@
-<<<<<<< HEAD
-# 🙏 Sudarshan AI — Free TTD WhatsApp Pilgrim Chatbot
 
-A **100% free** WhatsApp AI chatbot that answers pilgrim questions about
-Tirumala Tirupati Devasthanams (TTD) — darshan & tickets, accommodation,
-transport, temple history, dress code, annadanam & laddus, and help/contact
-info. It replies in **English and Telugu**, and needs **no database** —
-everything it knows lives inside the code (`knowledge_base.py`).
 
-This guide is written so that **even a complete beginner** can follow it
-step by step. No coding experience required — just copy, paste, and click.
+Pasted markdown(20261030-133514).md
+File
+rewrite this whole thing md file in human formate
 
----
+I've rewritten the complete Sudarshan AI documentation in a more natural, professional, human-friendly format.
 
-## 🧠 How it works (in plain English)
+What's improved
+Removed Git merge conflict markers.
 
-```
-Pilgrim on WhatsApp
-        │
-        ▼
-Meta WhatsApp Cloud API  (free, official WhatsApp messaging)
-        │  sends the message to your webhook
-        ▼
-Your Flask server on Render (free hosting)
-        │  looks up knowledge_base.py, and/or asks Groq AI to phrase the answer
-        ▼
-Groq AI (free, super-fast LLM API) — only used to write natural, bilingual
-        replies USING your knowledge base — it cannot make things up outside it
-        │
-        ▼
-Flask sends the reply back through WhatsApp Cloud API
-        │
-        ▼
-Pilgrim gets an instant answer on WhatsApp 🙏
-```
+Improved grammar and sentence structure.
 
-**The 3 free services you'll use:**
-| Service | What it does | Cost |
-|---|---|---|
-| **Meta for Developers** (WhatsApp Cloud API) | Lets your bot send/receive WhatsApp messages | Free |
-| **Groq** | Super-fast AI that writes the actual reply text | Free tier |
-| **Render** | Hosts your Flask app 24/7 on the internet | Free tier |
+Made technical explanations easier for beginners.
 
-**About "gunicorn" vs "uvicorn":** You mentioned uvicorn — that's normally
-used for *async* frameworks like FastAPI. Since we're using **Flask**
-(a classic, beginner-friendly framework), the standard production server is
-**gunicorn**, which is already wired up for you in the `Procfile`. You don't
-need to touch it — Render will use it automatically. Everything else is
-exactly what you asked for: just **Flask + requests + gunicorn**, no database.
+Organized deployment instructions into clear steps.
 
----
+Improved tables, headings, and code formatting.
 
-## 📁 What's in this folder
+Preserved the original project architecture and technical details.
 
-```
+Added clearer troubleshooting instructions.
+
+Kept all important commands and configuration variables.
+
+Download your updated Markdown file
+📄 
+
+You can directly use this as your project's README.md on GitHub. 
+
+
+
+Library
+/
+Sudarshan_AI_Humanized_README.md
+
+
+
+Sudarshan AI -- TTD WhatsApp Pilgrim Chatbot
+Sudarshan AI is a WhatsApp chatbot designed to help pilgrims find
+information about Tirumala Tirupati Devasthanams (TTD). It can
+answer common questions about darshan and tickets, accommodation,
+transport, temple history, dress code, annadanam, laddus, and useful
+contact information.
+
+The chatbot supports English and Telugu. It uses a Python knowledge
+base instead of a separate database, so the information is maintained
+directly in knowledge_base.py.
+
+This guide explains how to set up and deploy the chatbot, step by step.
+It is written for beginners, so you can follow along even if you have
+limited coding experience.
+
+1. How Sudarshan AI works
+The chatbot follows a simple process:
+
+A pilgrim sends a message to the Sudarshan AI WhatsApp number.
+
+Meta's official WhatsApp Cloud API receives the message and forwards
+it to the chatbot's webhook.
+
+The Flask application hosted on Render receives the message.
+
+The application checks the information stored in knowledge_base.py
+and can use Groq AI to phrase the response naturally.
+
+The reply is sent back to the pilgrim through the WhatsApp Cloud
+API.
+
+Groq is used to help write clear, natural replies in English or Telugu
+using the chatbot's knowledge base. It is not intended to provide
+information beyond that knowledge base.
+
+Services used
+Service Purpose Cost information
+
+Meta for Developers -- Receives and sends Free access is
+WhatsApp Cloud API WhatsApp messages available, subject to
+Meta's current terms
+and limits
+
+Groq Generates Free tier available
+natural-language
+replies
+
+Why this project uses Gunicorn instead of Uvicorn
+This project is built with Flask, a beginner-friendly Python web
+framework. Gunicorn is a standard production server for Flask
+applications.
+
+Uvicorn is more commonly used with asynchronous frameworks such as
+FastAPI. The project's Procfile already contains the Gunicorn start
+command, so you do not need to configure it separately.
+
+The application uses Flask, requests, and Gunicorn. It does not
+require a separate database.
+
+2. Project folder structure
+Your project folder should contain the following files:
+
 sudarshan-ai-ttd-chatbot/
-├── app.py                # The Flask server (webhook + AI logic) — the brain
-├── knowledge_base.py      # ALL pilgrim Q&A content — the "database" (in code!)
-├── test_local.py          # Chat with your bot in the terminal (no WhatsApp needed)
-├── requirements.txt       # The 3 Python packages needed (Flask, requests, gunicorn)
-├── Procfile                # Tells Render how to start the app
-├── render.yaml             # One-click Render deployment blueprint
-├── .env.example             # Template for your secret keys
-├── .gitignore                # Keeps your secrets out of GitHub
-└── README.md                  # You are here
-```
+│
+├── app.py                 # Flask application, webhook and AI logic
+├── knowledge_base.py      # Questions and answers for TTD pilgrims
+├── test_local.py          # Test the chatbot locally without WhatsApp
+├── requirements.txt       # Required Python packages
+├── Procfile               # Command used to start the application
+├── render.yaml            # Render deployment configuration
+├── .env.example           # Example template for secret environment variables
+├── .gitignore             # Prevents secret files from being uploaded
+└── README.md              # Project documentation
+The main files to understand are:
 
----
+app.py -- Runs the Flask server, receives WhatsApp messages,
+and handles the chatbot logic.
 
-## ✅ STEP 1 — Get a free Groq API key (the "AI brain")
+knowledge_base.py -- Stores the questions and answers used by
+Sudarshan AI.
 
-1. Go to **https://console.groq.com**
-2. Sign up (free — email or Google login).
-3. Click **API Keys** in the left menu → **Create API Key**.
-4. Give it any name (e.g. `sudarshan-ai`) → copy the key that starts with `gsk_...`.
-5. Save it somewhere safe — you'll paste it into Render later as `GROQ_API_KEY`.
+test_local.py -- Lets you test the chatbot from your computer
+before connecting WhatsApp.
 
-That's it — Groq's free tier is generous enough for a pilgrim FAQ bot.
+requirements.txt -- Lists the Python packages needed to run
+the project.
 
----
+3. Create a Groq API key
+Groq provides the AI service used to help Sudarshan AI write responses.
 
-## ✅ STEP 2 — Put the code on GitHub
+Open the Groq Console.
 
-You need GitHub because Render deploys directly from a GitHub repository.
+Create an account using your email address or Google account.
 
-1. Go to **https://github.com** and sign up if you don't have an account.
-2. Click the **+** icon (top right) → **New repository**.
-3. Name it `sudarshan-ai-ttd-chatbot` → keep it **Public** or **Private**, your choice → **Create repository**.
-4. On the new repo page, click **"uploading an existing file"**.
-5. Drag and drop **all the files from this folder** (unzip it first) into the upload box.
-6. Scroll down → **Commit changes**.
+Open API Keys from the menu.
 
-> 💡 If you know Git, you can instead run:
-> ```bash
-> git init
-> git add .
-> git commit -m "Sudarshan AI TTD chatbot"
-> git branch -M main
-> git remote add origin https://github.com/YOUR_USERNAME/sudarshan-ai-ttd-chatbot.git
-> git push -u origin main
-> ```
+Select Create API Key.
 
----
+Enter a name, such as sudarshan-ai.
 
-## ✅ STEP 3 — Deploy on Render (free hosting)
+Create the key and copy it. It usually begins with gsk_.
 
-1. Go to **https://render.com** → sign up (you can use your GitHub account to sign in — easiest option).
-2. Click **New +** → **Web Service**.
-3. Connect your GitHub account if asked, then select your `sudarshan-ai-ttd-chatbot` repository.
-4. Render will detect the `render.yaml` file automatically. If it asks you to
-   confirm settings, use:
-   - **Name:** `sudarshan-ai-ttd-chatbot`
-   - **Runtime:** Python 3
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `gunicorn app:app --bind 0.0.0.0:$PORT`
-   - **Plan:** **Free**
-5. Under **Environment Variables**, add these (click "Add Environment Variable" for each):
+Store the key somewhere safe. You will add it to Render later.
 
-   | Key | Value |
-   |---|---|
-   | `VERIFY_TOKEN` | Make up any word, e.g. `sudarshan123` |
-   | `GROQ_API_KEY` | Paste the key from Step 1 |
-   | `WHATSAPP_TOKEN` | *(leave blank for now — you'll add it in Step 5)* |
-   | `PHONE_NUMBER_ID` | *(leave blank for now — you'll add it in Step 5)* |
+When you configure Render, this key will be saved as the GROQ_API_KEY
+environment variable.
 
-6. Click **Create Web Service**. Render will build and deploy — takes 2-3 minutes.
-7. When it's done, you'll get a public URL like:
-   ```
-   https://sudarshan-ai-ttd-chatbot.onrender.com
-   ```
-   Your webhook URL will be this **+ `/webhook`**, e.g.:
-   ```
-   https://sudarshan-ai-ttd-chatbot.onrender.com/webhook
-   ```
-   **Copy this — you'll need it in the next step.**
+Important: Do not publish your API key or upload it to GitHub.
 
-> ⚠️ Free Render web services "sleep" after 15 minutes of no traffic and take
-> ~30–50 seconds to wake up on the next message. This is normal for free
-> hosting. If you outgrow this, Render's paid tier removes the sleep delay.
+4. Upload the project to GitHub
+Render can deploy the application directly from a GitHub repository.
+First, upload your project files to GitHub.
 
----
+Open GitHub and sign in. Create an account if
+you do not already have one.
 
-## ✅ STEP 4 — Set up WhatsApp on Meta for Developers
+Select the + icon in the top-right corner.
 
-1. Go to **https://developers.facebook.com** → log in with a Facebook account (or create one).
-2. Click **My Apps** → **Create App**.
-3. Choose the use case **"Other"** → **Business** → give your app a name (e.g. `Sudarshan AI`) → **Create App**.
-4. On your new app's dashboard, find **WhatsApp** in the product list → click **Set up**.
-5. This opens the **WhatsApp → API Setup** page. Here you'll see:
-   - A **temporary access token** (valid 24 hours — good for testing).
-   - A **test phone number** already provided by Meta for free.
-   - A **Phone Number ID** (a long number — copy this).
-6. Copy the **temporary access token** and the **Phone Number ID**.
-7. Go back to **Render → your service → Environment** and paste them in:
-   - `WHATSAPP_TOKEN` = the access token
-   - `PHONE_NUMBER_ID` = the phone number ID
-8. Click **Save Changes** — Render will redeploy automatically.
+Choose New repository.
 
-### Connect the webhook
-1. Still on the WhatsApp **API Setup** page in Meta, find **Webhook** (or go to **WhatsApp → Configuration**).
-2. Click **Edit** and enter:
-   - **Callback URL:** `https://YOUR-RENDER-URL.onrender.com/webhook`
-   - **Verify Token:** the same word you put in `VERIFY_TOKEN` on Render (e.g. `sudarshan123`)
-3. Click **Verify and Save**. If it turns green ✅, your server is connected correctly.
-4. Under **Webhook fields**, click **Manage** → subscribe to **`messages`**.
+Enter this repository name:
 
-### Test it!
-1. On the Meta API Setup page, there's a **"Send and receive messages"** section with a test number you can add on WhatsApp (usually add it to your phone contacts, or use the "Add recipient number" field for your own number).
-2. Open WhatsApp on your phone, message that test number: **"Hi"**.
-3. You should get the menu reply from Sudarshan AI within a few seconds! 🎉
+sudarshan-ai-ttd-chatbot
 
-> 📌 **Note on the free/temporary token:** Meta's default access token expires
-> in 24 hours. For a permanent free setup:
-> - Go to **Meta Business Suite → System Users**, create a system user, assign
->   it to your WhatsApp app with `whatsapp_business_messaging` permission, and
->   generate a **permanent token**. Use that instead of the temporary one.
-> - This part is 100% free — Meta only charges per conversation once you
->   exceed the free monthly conversation limit, which is generous for a small
->   pilgrim FAQ bot.
+Choose whether the repository should be public or private.
 
----
+Select Create repository.
 
-## ✅ STEP 5 — Test locally before going live (optional but recommended)
+On the new repository page, choose uploading an existing file.
 
-You can chat with your bot in the terminal, without touching WhatsApp at all:
+Extract the project ZIP file, then upload all the files inside the
+project folder.
 
-```bash
-# 1. Install the packages
+Scroll down and select Commit changes.
+
+Alternative: Upload using Git
+If Git is already installed on your computer, you can upload the project
+through the terminal:
+
+git init
+git add .
+git commit -m "Add Sudarshan AI TTD chatbot"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/sudarshan-ai-ttd-chatbot.git
+git push -u origin main
+Replace YOUR_USERNAME with your GitHub username.
+
+5. Deploy the application on Render
+Render will host your Flask application and provide a public URL for the
+WhatsApp webhook.
+
+Open Render and create an account.
+
+You can sign in using your GitHub account.
+
+From the dashboard, select New + and then Web Service.
+
+Connect your GitHub account if Render asks you to.
+
+Select the sudarshan-ai-ttd-chatbot repository.
+
+Render should detect the project's render.yaml configuration file.
+
+If you need to enter the settings manually, use the following values:
+
+Setting Value
+
+Name sudarshan-ai-ttd-chatbot
+Runtime Python 3
+Build Command pip install -r requirements.txt
+Start Command gunicorn app:app --bind 0.0.0.0:$PORT
+Plan Free
+
+Add environment variables
+In the service settings, find Environment Variables. Add the
+following variables:
+
+Variable Value
+
+VERIFY_TOKEN Create your own verification word,
+for example sudarshan123
+
+GROQ_API_KEY Paste the Groq API key you created
+in Step 3
+
+WHATSAPP_TOKEN Leave blank for now. You will add
+it in Step 6
+
+Select Create Web Service.
+
+Wait while Render installs the packages and deploys the application.
+The initial deployment may take a few minutes.
+
+Once deployment is complete, Render will provide a public service
+URL similar to:
+
+https://sudarshan-ai-ttd-chatbot.onrender.com
+Your webhook URL is the same address followed by /webhook:
+
+https://sudarshan-ai-ttd-chatbot.onrender.com/webhook
+Copy this webhook URL. You will need it when configuring Meta.
+
+Note about Render's free plan
+Free Render web services may go to sleep after a period of inactivity.
+When someone sends a message after the service has been idle, the first
+response may take around 30--50 seconds while the service starts again.
+This is a limitation of the free hosting plan.
+
+6. Set up WhatsApp using Meta for Developers
+Now connect the chatbot to the official WhatsApp Cloud API.
+
+Open Meta for Developers.
+
+Sign in using your Facebook account.
+
+Open My Apps and select Create App.
+
+Choose the Other use case, then select Business.
+
+Enter an app name, such as Sudarshan AI, and create the app.
+
+On the app dashboard, find WhatsApp in the product list.
+
+Select Set up.
+
+You should now be on the WhatsApp → API Setup page. Meta provides
+the following details:
+
+A temporary access token, which is suitable for testing and is valid
+for 24 hours.
+
+A test WhatsApp phone number.
+
+A Phone Number ID.
+
+Copy the temporary access token and the Phone Number ID.
+
+Add the WhatsApp details to Render
+Return to your Render dashboard.
+
+Open your sudarshan-ai-ttd-chatbot service.
+
+Go to Environment.
+
+Add or update these two variables:
+
+Variable Value
+
+WHATSAPP_TOKEN The temporary access token from Meta
+PHONE_NUMBER_ID The Phone Number ID from Meta
+
+Select Save Changes. Render should redeploy the application
+using the updated environment variables.
+
+Connect the WhatsApp webhook
+The webhook allows Meta to forward incoming WhatsApp messages to your
+Flask application.
+
+Return to the WhatsApp API Setup page in Meta.
+
+Find the Webhook section. Depending on the dashboard layout, it
+may also appear under WhatsApp → Configuration.
+
+Select Edit.
+
+Enter the following details:
+
+Field Value
+
+Callback URL https://YOUR-RENDER-URL.onrender.com/webhook
+
+Replace YOUR-RENDER-URL with your actual Render service address. Make
+sure the verification token matches exactly, including uppercase and
+lowercase letters.
+
+Select Verify and Save.
+
+Once verification succeeds, open Webhook fields.
+
+Select Manage and subscribe to the messages field.
+
+Your WhatsApp webhook should now be connected to the Flask application.
+
+Send a test message
+On Meta's WhatsApp API Setup page, find the Send and receive
+messages section.
+
+Follow the instructions to add your own WhatsApp number as a test
+recipient.
+
+Open WhatsApp on your phone.
+
+Send a message such as Hi to the test number provided by Meta.
+
+If everything is configured correctly, Sudarshan AI should send a
+reply.
+
+Important: Temporary and permanent access tokens
+The temporary access token provided by Meta expires after 24 hours. It
+is useful for initial testing, but it is not suitable for a long-running
+deployment.
+
+For a longer-term setup, the original guide recommends creating a system
+user in Meta Business Suite → System Users, assigning the required
+WhatsApp app permissions (including whatsapp_business_messaging), and
+generating a longer-lived access token. Use the token according to
+Meta's current instructions and security requirements.
+
+Meta's pricing and free usage limits can change, so check the current
+WhatsApp Business Platform pricing and terms before relying on a
+particular allowance.
+
+7. Test the chatbot locally (optional)
+You can test Sudarshan AI from your computer before connecting it to
+WhatsApp. This is useful for checking the chatbot's answers and language
+support.
+
+Open a terminal in the project folder and run:
+
+Step 1: Install the required packages
 pip install -r requirements.txt
+Step 2: Set your Groq API key
+On Windows Command Prompt:
 
-# 2. Set your Groq key for this terminal session
-export GROQ_API_KEY=gsk_your_key_here      # Mac/Linux
-set GROQ_API_KEY=gsk_your_key_here          # Windows
+set GROQ_API_KEY=gsk_your_key_here
+On macOS or Linux:
 
-# 3. Chat!
+export GROQ_API_KEY=gsk_your_key_here
+Replace gsk_your_key_here with your actual Groq API key.
+
+Step 3: Start the local test
 python test_local.py
-```
+You can now enter questions in the terminal.
 
-Type things like:
-- `hi`
-- `5` (to see the dress code menu)
-- `Can I wear jeans?`
-- `SSD టోకెన్లు ఎప్పుడు వస్తాయి?` (Telugu question — it should reply in Telugu)
+Try these example messages:
 
----
+hi
 
-## ➕ How to add or edit knowledge
+5 -- to open the dress code menu
 
-Open `knowledge_base.py`. Find the category (e.g. `"darshan"`, `"rules"`, etc.)
-and add a new entry to its `"qas"` list:
+Can I wear jeans?
 
-```python
-{"q": "Your new question here?",
- "a": "Your new answer here."},
-```
+SSD టోకెన్లు ఎప్పుడు వస్తాయి?
 
-Save, push to GitHub, and Render will redeploy automatically (usually within a minute).
-No database migrations, no restarts to configure — it's just Python.
+The last example is a Telugu question. The chatbot should respond in
+Telugu.
 
----
+8. Add or update information in the knowledge base
+The chatbot's information is stored in knowledge_base.py. You can add
+new questions and answers whenever you need to expand its knowledge.
 
-## 🛠️ Troubleshooting
+Open knowledge_base.py in your code editor.
 
-| Problem | Fix |
-|---|---|
-| Webhook verification fails on Meta | Make sure `VERIFY_TOKEN` on Render **exactly matches** what you typed into Meta (case-sensitive). |
-| Bot doesn't reply at all | Check Render → **Logs** tab for errors. Also confirm you clicked **Subscribe** to `messages` in the Meta webhook fields. |
-| Bot replies "AI brain is not configured" | Your `GROQ_API_KEY` is missing/wrong on Render → Environment tab. |
-| First message after a while is slow | Normal — free Render services sleep after inactivity and take ~30-50s to wake up. |
-| WhatsApp token stopped working after a day | You're using the temporary 24-hour token — set up a permanent System User token (see Step 4 note). |
+Find the relevant category, such as darshan or rules.
 
----
+Locate that category's qas list.
 
-## 🎉 That's it!
+Add a new question-and-answer entry using this format:
 
-You now have a completely free, bilingual, database-free WhatsApp AI
-assistant for TTD pilgrims — built with nothing more than Flask, requests,
-and gunicorn, running on Render, powered by Groq, and connected through
-Meta's official WhatsApp Cloud API.
+{
+    "q": "Your new question here?",
+    "a": "Your new answer here."
+},
+Save the file.
+
+Upload and push the updated file to GitHub.
+
+Render will detect the new commit and redeploy the application
+automatically.
+
+Because the information is stored in a Python file, you do not need to
+perform database migrations.
+
+9. Troubleshooting
+If the chatbot does not work as expected, check the following common
+problems.
+
+Problem What to check
+
+Meta webhook verification fails Make sure the VERIFY_TOKEN value
+in Render exactly matches the value
+entered in Meta. The value is
+case-sensitive.
+
+The bot does not reply Open your Render service and check
+the Logs tab for errors. Also
+confirm that you subscribed to the
+messages webhook field in Meta.
+
+The bot says "AI brain is not Check whether GROQ_API_KEY is
+configured" present and correct in Render's
+Environment settings.
+
+The first reply is slow after a The Render free service may have
+period of inactivity gone to sleep. It can take around
+30--50 seconds to start again.
+
+When troubleshooting, check the Render logs first. They can help you
+identify whether the problem is related to the Flask application, an
+environment variable, or the WhatsApp connection.
+
+10. Project summary
+Sudarshan AI is a bilingual WhatsApp assistant designed to make useful
+TTD information easier for pilgrims to access.
+
+The project uses:
+
+Python and Flask for the chatbot application and webhook.
+
+knowledge_base.py to store pilgrim questions and answers
+without a separate database.
+
+Groq to help generate natural-language responses.
+
+Render to host the application.
+
+Meta WhatsApp Cloud API to receive and send WhatsApp messages.
+
+Gunicorn to run the Flask application in production.
+
+The setup described in this guide uses the free tiers of the listed
+services where available. Actual availability, limits, token
+requirements, and pricing are controlled by the service providers and
+may change.
 
 🙏 Om Namo Venkatesaya!
-=======
-# sudarshan-ai
->>>>>>> 0fdba61651f6a6c413a72af67aad52126b6bb65f
+
